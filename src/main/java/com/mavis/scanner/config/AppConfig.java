@@ -39,9 +39,9 @@ public class AppConfig {
     public static final String DW_KEY_SOURCE = "com.symbol.datawedge.source";
 
     // ==================== TEST CREDENTIALS ====================
-    public static final String TEST_STORE = "823";
+    public static final String TEST_STORE = "20";
     public static final String TEST_EMPLOYEE = "421628";
-    public static final String TEST_INV_CODE = "63724"; // Override per environment
+    public static final String TEST_INV_CODE = "63725"; // Override per environment
 
     // ==================== API ====================
     public static final String API_BASE_URL = "https://inventoryscanapi.qa.mavis.com";

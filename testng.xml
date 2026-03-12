@@ -1,38 +1,33 @@
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
 <suite name="Mavis Inventory Scanner - Appium Test Suite" verbose="1">
 
-    <!-- Sanity Tests - Quick app launch verification -->
-    <test name="Sanity Tests">
+    <!-- Schedules a fresh inventory run before executing tests -->
+    <parameter name="TEST_STORE" value="30"/>
+    <parameter name="SCHEDULE_IF_NEEDED" value="true"/>
+
+    <!-- Tire E2E - Solo inventory (PC=2 only) -->
+    <test name="Tire E2E">
+        <parameter name="INVENTORY_PCS" value="2"/>
         <classes>
-            <class name="com.mavis.scanner.sanity.AppLaunchSanityTest"/>
+            <class name="com.mavis.scanner.functional.InventoryEndToEndTest">
+                <methods>
+                    <include name="testCompleteTireInventoryFlow"/>
+                </methods>
+            </class>
         </classes>
     </test>
 
-    <!-- Login Tests - Authentication and validation -->
-    <test name="Login Tests">
-        <classes>
-            <class name="com.mavis.scanner.functional.LoginTest"/>
-        </classes>
-    </test>
 
-    <!-- Tire Scanning Tests - Core scanning workflow -->
-    <test name="Tire Scanning Tests">
-        <classes>
-            <class name="com.mavis.scanner.functional.TireScanningTest"/>
-        </classes>
-    </test>
 
-    <!-- Parts Scanning Tests - Category-based workflow -->
-    <test name="Parts Scanning Tests">
+    <!-- Parts E2E - Combined inventory (multiple PCs, no tire) -->
+    <test name="Parts E2E">
+        <parameter name="INVENTORY_PCS" value="62,65,86,188"/>
         <classes>
-            <class name="com.mavis.scanner.functional.PartsScanningTest"/>
-        </classes>
-    </test>
-
-    <!-- End-to-End Tests - Full inventory lifecycle -->
-    <test name="End-to-End Tests">
-        <classes>
-            <class name="com.mavis.scanner.functional.InventoryEndToEndTest"/>
+            <class name="com.mavis.scanner.functional.InventoryEndToEndTest">
+                <methods>
+                    <include name="testCompletePartsInventoryFlow"/>
+                </methods>
+            </class>
         </classes>
     </test>
 

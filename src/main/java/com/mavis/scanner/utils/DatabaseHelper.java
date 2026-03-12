@@ -29,10 +29,16 @@ public class DatabaseHelper {
     /** Path to the tires_upc JSON file (BarcodeMasterList dump) */
     private static final String UPC_FILE_PATH = "tires_upc";
 
+    /** Path to the parts_upc JSON file (parts BarcodeMasterList dump) */
+    private static final String PARTS_UPC_FILE_PATH = "parts_upc";
+
     private final AndroidDriver driver;
 
     /** Cached items from tires_upc file */
     private static List<Map<String, String>> cachedItems = null;
+
+    /** Cached items from parts_upc file */
+    private static List<Map<String, String>> cachedPartsItems = null;
 
     public DatabaseHelper(AndroidDriver driver) {
         this.driver = driver;
@@ -269,6 +275,66 @@ public class DatabaseHelper {
             return items.get(0).get("item");
         }
         return AppConfig.FALLBACK_TIRE_DATA[0][0];
+    }
+
+    // ==================== PARTS_UPC FILE ====================
+
+    /**
+     * Load and cache items from the parts_upc JSON file.
+     */
+    private List<Map<String, String>> loadPartsUpcFile() {
+        if (cachedPartsItems != null) {
+            return cachedPartsItems;
+        }
+
+        String[] paths = {
+                PARTS_UPC_FILE_PATH,
+                System.getProperty("user.dir") + File.separator + PARTS_UPC_FILE_PATH,
+                System.getProperty("user.dir") + File.separator + ".." + File.separator + PARTS_UPC_FILE_PATH
+        };
+
+        for (String path : paths) {
+            File file = new File(path);
+            if (file.exists() && file.length() > 0) {
+                try {
+                    cachedPartsItems = parseUpcFile(file);
+                    System.out.println("[DatabaseHelper] Loaded " + cachedPartsItems.size() +
+                            " items from " + file.getAbsolutePath());
+                    return cachedPartsItems;
+                } catch (Exception e) {
+                    System.out.println("[DatabaseHelper] Failed to parse parts_upc " + path + ": " + e.getMessage());
+                }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * Get UPC codes for a specific PC from the parts_upc file.
+     * The file contains multiple PCs — this strictly filters to the requested PC only.
+     */
+    public List<String> getUpcsFromPartsFile(String pc, int limit) {
+        List<String> upcs = new ArrayList<>();
+        List<Map<String, String>> items = loadPartsUpcFile();
+        if (items == null) return upcs;
+
+        int totalMatchingPc = 0;
+        for (Map<String, String> item : items) {
+            String itemPc = item.get("pc");
+            if (!pc.equals(itemPc)) continue;
+
+            totalMatchingPc++;
+            if (upcs.size() < limit) {
+                String upc = item.get("upc");
+                if (upc != null && !upc.isEmpty()) {
+                    upcs.add(upc);
+                }
+            }
+        }
+        System.out.println("[DatabaseHelper] parts_upc: found " + totalMatchingPc +
+                " total items for PC " + pc + ", returning " + upcs.size() + " UPCs");
+        return upcs;
     }
 
     // ==================== SQL SERVER QUERIES ====================
@@ -511,9 +577,10 @@ public class DatabaseHelper {
         List<String> upcs = new ArrayList<>();
 
         // Source 1: SQL Server barcodeMasterMultiUOM (canonical source for parts UPCs)
+        // Use CAST to handle both numeric and string Pc column types
         String sql = String.format(
                 "SELECT TOP %d UPC FROM InventoryScanning.inv.barcodeMasterMultiUOM " +
-                        "WHERE UPC IS NOT NULL AND UPC != '' AND Pc = '%s'", limit, pc);
+                        "WHERE UPC IS NOT NULL AND UPC != '' AND CAST(Pc AS VARCHAR) = '%s'", limit, pc);
         try (Connection conn = getSqlServerConnection();
              Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery(sql)) {
@@ -521,6 +588,20 @@ public class DatabaseHelper {
                 String upc = rs.getString("UPC");
                 if (upc != null && !upc.trim().isEmpty()) {
                     upcs.add(upc.trim());
+                }
+            }
+            if (upcs.isEmpty()) {
+                System.out.println("[DatabaseHelper] SQL query returned 0 UPCs for PC " + pc + " — checking if Pc column has matching data...");
+                // Diagnostic: check what Pc values exist near this value
+                String diagSql = "SELECT TOP 5 CAST(Pc AS VARCHAR) AS PcVal, COUNT(*) AS cnt " +
+                        "FROM InventoryScanning.inv.barcodeMasterMultiUOM " +
+                        "WHERE UPC IS NOT NULL AND UPC != '' " +
+                        "GROUP BY CAST(Pc AS VARCHAR) ORDER BY cnt DESC";
+                try (Statement diagStmt = conn.createStatement();
+                     ResultSet diagRs = diagStmt.executeQuery(diagSql)) {
+                    while (diagRs.next()) {
+                        System.out.println("[DatabaseHelper]   Pc='" + diagRs.getString("PcVal") + "' count=" + diagRs.getInt("cnt"));
+                    }
                 }
             }
         } catch (Exception e) {
@@ -531,7 +612,6 @@ public class DatabaseHelper {
             System.out.println("[DatabaseHelper] Got " + upcs.size() + " UPCs for PC " + pc + " from barcodeMasterMultiUOM");
             return upcs;
         }
-
 
         // Source 2: tires_upc file filtered by PC
         List<Map<String, String>> items = loadUpcFile();
@@ -653,28 +733,6 @@ public class DatabaseHelper {
             }
         }
         return getValidItemNumber();
-    }
-
-    /**
-     * Look up the PC code for a given item number from barcodeMasterMultiUOM.
-     * Returns the Pc value, or null if not found.
-     */
-    public String getPcForItem(String itemNumber) {
-        if (itemNumber == null || itemNumber.trim().isEmpty()) return null;
-        String sql = String.format(
-                "SELECT TOP 1 Pc FROM InventoryScanning.inv.barcodeMasterMultiUOM WHERE Item = '%s'",
-                itemNumber.trim());
-        try (Connection conn = getSqlServerConnection();
-             Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)) {
-            if (rs.next()) {
-                String pc = rs.getString("Pc");
-                return pc != null ? pc.trim() : null;
-            }
-        } catch (Exception e) {
-            System.out.println("[DatabaseHelper] PC lookup for item " + itemNumber + " failed: " + e.getMessage());
-        }
-        return null;
     }
 
     // ==================== FALLBACK DATA ====================

@@ -1,5 +1,7 @@
 target/
 .idea/
+
+*.html
 *.iml
 *.class
 test-reports/

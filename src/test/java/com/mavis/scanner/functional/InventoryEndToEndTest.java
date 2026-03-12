@@ -561,9 +561,17 @@ public class InventoryEndToEndTest extends BaseTest {
                 continue;
             }
 
-            // --- Fetch UPCs for this specific PC from barcodeMasterMultiUOM ---
+            // --- Fetch UPCs for this specific PC ---
+            // For brakes/rotors (PC 66), read from parts_upc file; otherwise use barcodeMasterMultiUOM
             List<String> upcCodes;
-            if (pcCode != null) {
+            if ("66".equals(pcCode)) {
+                upcCodes = dbHelper.getUpcsFromPartsFile("66", 5);
+                logStep("PC " + pcSlot + ": Loaded " + upcCodes.size() + " UPCs for PC 66 (brakes/rotors) from parts_upc file");
+                if (upcCodes.isEmpty()) {
+                    upcCodes = dbHelper.getTestUpcsByPc(pcCode, 5);
+                    logStep("PC " + pcSlot + ": Fallback - loaded " + upcCodes.size() + " UPCs from barcodeMasterMultiUOM");
+                }
+            } else if (pcCode != null) {
                 upcCodes = dbHelper.getTestUpcsByPc(pcCode, 5);
                 logStep("PC " + pcSlot + ": Loaded " + upcCodes.size() + " UPCs for PC " + pcCode + " from barcodeMasterMultiUOM");
             } else {
@@ -696,6 +704,17 @@ public class InventoryEndToEndTest extends BaseTest {
                 // Still on MainActivityParts — check for remaining sections
                 partsMain = new PartsMainPage(driver, wait);
                 if (!partsMain.isDisplayed()) {
+                    // Check if app crashed (landed on home screen / launcher)
+                    try {
+                        String activity = driver.currentActivity();
+                        if (activity != null && activity.toLowerCase().contains("launcher")) {
+                            logStep("PC " + pcSlot + ": App appears to have crashed (activity: " + activity + "). Breaking out of finish loop.");
+                            break;
+                        }
+                    } catch (Exception actEx) {
+                        logStep("PC " + pcSlot + ": Cannot determine current activity, instrumentation may have crashed. Breaking out of finish loop.");
+                        break;
+                    }
                     dismissAnyDialog();
                     Thread.sleep(AppConfig.SHORT_WAIT);
                     partsCategory = new PartsCategoryPage(driver, wait);
@@ -738,9 +757,31 @@ public class InventoryEndToEndTest extends BaseTest {
                 boolean completed = partsCategory.isCategoryCompleted(pcSlot);
                 logStep("PC " + pcSlot + ": Returned to category screen. Completed: " + completed);
             } else {
-                logStep("PC " + pcSlot + ": Could not return to PartsCategoryPage. Activity: " + driver.currentActivity());
-                driver.navigate().back();
-                Thread.sleep(AppConfig.MEDIUM_WAIT);
+                String currentActivity = "";
+                try {
+                    currentActivity = driver.currentActivity();
+                } catch (Exception e) {
+                    currentActivity = "(unable to get activity: " + e.getMessage() + ")";
+                }
+                logStep("PC " + pcSlot + ": Could not return to PartsCategoryPage. Activity: " + currentActivity);
+
+                // Try to navigate back, but handle UiAutomator2 crash gracefully
+                try {
+                    driver.navigate().back();
+                    Thread.sleep(AppConfig.MEDIUM_WAIT);
+                    dismissAnyDialog();
+                    Thread.sleep(AppConfig.SHORT_WAIT);
+                } catch (Exception backEx) {
+                    logStep("PC " + pcSlot + ": navigate().back() failed (instrumentation may have crashed): " + backEx.getMessage());
+                    // Try to recover by relaunching the app
+                    try {
+                        logStep("PC " + pcSlot + ": Attempting app relaunch to recover...");
+                        driver.activateApp(AppConfig.APP_PACKAGE);
+                        Thread.sleep(AppConfig.LONG_WAIT);
+                    } catch (Exception relaunchEx) {
+                        logStep("PC " + pcSlot + ": App relaunch also failed: " + relaunchEx.getMessage());
+                    }
+                }
                 partsCategory = new PartsCategoryPage(driver, wait);
             }
         }

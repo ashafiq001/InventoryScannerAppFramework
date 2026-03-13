@@ -73,6 +73,26 @@
 
 
 
+    <test name="Edge Case - Tire Inventory">
+        <parameter name="INVENTORY_PCS" value="2"/>
+        <classes>
+            <class name="com.mavis.scanner.functional.EdgeCaseTest">
+                <methods>
+                    <include name="testDuplicateBarcodeScanRapidly"/>
+                    <include name="testMalformedSectionBarcodeNoNumber"/>
+                    <include name="testMalformedSectionBarcodeNonNumeric"/>
+                    <include name="testScanSectionBarcodeAsItem"/>
+                    <include name="testFinishTireInventoryWithZeroItems"/>
+                    <include name="testPartsCloseSectionWithZeroItems"/>
+                </methods>
+            </class>
+        </classes>
+    </test>
+
+
+
+
+
     <test name="Delete Item Test - Tire Inventory">
         <parameter name="INVENTORY_PCS" value="2"/>
         <classes>
@@ -107,7 +127,7 @@
 
     <test name="Tire Invenotry With All Store Sections">
         <parameter name="INVENTORY_PCS" value="2"/>
-        <parameter name="TEST_STORE" value="4541"/>
+<!--        <parameter name="TEST_STORE" value="4541"/>-->
         <classes>
             <class name="com.mavis.scanner.functional.SectionUploadVerificationTest">
                 <methods>

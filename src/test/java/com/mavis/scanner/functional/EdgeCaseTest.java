@@ -762,7 +762,7 @@ import java.util.*;
             Thread.sleep(AppConfig.MEDIUM_WAIT);
 
             // Step 3: Tap "Go back to scan" on the missed sections dialog
-            By goBackBtn = byText("Go back to scan");
+            By goBackBtn = byText("GO BACK TO SCAN");
             By closeWith0Btn = byTextIgnoreCase("CLOSE WITH 0");
 
             boolean goBackFound = WaitHelper.isElementPresent(driver, goBackBtn);

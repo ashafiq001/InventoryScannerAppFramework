@@ -18,7 +18,7 @@ public class EmailHelper {
     private static final String[] RECIPIENTS = {
             "ashafiq@mavis.com"
     };
-
+// ,"mperson@mavis.com","mandjelkovic@mavis.com"
     public static boolean sendReport(String reportPath, String suiteName, String summary) {
         Properties props = new Properties();
         props.put("mail.smtp.auth", "true");

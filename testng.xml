@@ -31,4 +31,92 @@
         </classes>
     </test>
 
+
+
+    <test name="Negative Test - Tire Inventory">
+        <parameter name="INVENTORY_PCS" value="2"/>
+        <classes>
+            <class name="com.mavis.scanner.functional.NegativeTest">
+                <methods>
+                    <include name="testLoginStoreOnlyFilled"/>
+                    <include name="testLoginSpecialCharactersInStore"/>
+                    <include name="testLoginVeryLongStoreNumber"/>
+                    <include name="testLoginLeadingZeros"/>
+                    <include name="testScanInvalidBarcodeFormat"/>
+                    <include name="testScanItemWithoutOpenSection"/>
+                    <include name="testAddNonExistentItemNumber"/>
+                    <include name="testAddItemWithZeroQuantity"/>
+                    <include name="testManualCountMismatch"/>
+                    <include name="testCloseSectionWithZeroItems"/>
+                </methods>
+            </class>
+        </classes>
+    </test>
+
+
+    <test name="Negative Test - Parts Inventory">
+        <parameter name="INVENTORY_PCS" value="65,188"/>
+        <classes>
+            <class name="com.mavis.scanner.functional.NegativeTest">
+                <methods>
+                    <include name="testPartsScanInvalidBarcodeFormat"/>
+                    <include name="testPartsScanItemWithoutOpenSection"/>
+                    <include name="testPartsAddNonExistentItemNumber"/>
+                    <include name="testPartsAddItemWithZeroQuantity"/>
+                    <include name="testPartsManualCountMismatch"/>
+                    <include name="testPartsCloseSectionWithZeroItems"/>
+                </methods>
+            </class>
+        </classes>
+    </test>
+
+
+
+
+    <test name="Delete Item Test - Tire Inventory">
+        <parameter name="INVENTORY_PCS" value="2"/>
+        <classes>
+            <class name="com.mavis.scanner.functional.ItemManagementTest">
+                <methods>
+                    <include name="testTireScanItemThenDelete"/>
+                    <include name="testTireManualAddThenDelete"/>
+                    <include name="testTireCancelDelete"/>
+                    <include name="testTireScanMultipleThenDeleteAll"/>
+                    <include name="testTireMixedAddThenDeleteBoth"/>
+                </methods>
+            </class>
+        </classes>
+    </test>
+
+
+
+    <test name="Item Management - Parts">
+        <parameter name="INVENTORY_PCS" value="62,65,86,188"/>
+        <classes>
+            <class name="com.mavis.scanner.functional.ItemManagementTest">
+                <methods>
+                    <include name="testPartsScanItemThenDelete"/>
+                    <include name="testPartsManualAddThenDelete"/>
+                    <include name="testPartsMixedAddThenDeleteBoth"/>
+                    <include name="testPartsCancelDelete"/>
+                </methods>
+            </class>
+        </classes>
+    </test>
+
+
+    <test name="Tire Invenotry With All Store Sections">
+        <parameter name="INVENTORY_PCS" value="2"/>
+        <parameter name="TEST_STORE" value="4541"/>
+        <classes>
+            <class name="com.mavis.scanner.functional.SectionUploadVerificationTest">
+                <methods>
+                    <include name="testPartsSectionScanAndUploadVerification"/>
+                </methods>
+            </class>
+        </classes>
+
+    </test>
+
+
 </suite>

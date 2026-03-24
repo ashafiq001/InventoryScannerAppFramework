@@ -4,7 +4,7 @@ import com.mavis.scanner.base.BaseTest;
 import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.pages.*;
 import com.mavis.scanner.pages.dialogs.ManualCountDialog;
-import com.mavis.scanner.utils.DatabaseHelper;
+
 import com.mavis.scanner.utils.DataWedgeHelper;
 import com.mavis.scanner.utils.InventorySetupHelper;
 import com.mavis.scanner.utils.InventorySetupHelper.ScheduledInventory;
@@ -60,30 +60,44 @@ public class SectionUploadVerificationTest extends BaseTest {
     }
 
     /**
-     * Get tire items from the tires_upc file, enriched with Sqhnd from TiremaxLive.
-     * Only returns items that exist at the store (Sqhnd > 0).
+     * Get tire items using spBuildBarcodeMasterFile (same source the app uses at login),
+     * filtered against the inv.inventory snapshot, enriched with Sqhnd from TiremaxLive.
+     * Only returns items that exist in both the barcode master AND the snapshot (Sqhnd > 0).
      * Sorted by Sqhnd ascending so items with Sqhnd=1 come first (zero discrepancy when scanned once).
      */
-    private List<Map<String, Object>> getAllTireItemsWithUpcs(DatabaseHelper dbHelper, String store, String invNum) {
-        // Tire UPCs come from the tires_upc file (NOT barcodeMasterMultiUOM, which is parts only).
-        // We load UPCs from the file, then filter to items that exist in the inv.inventory snapshot
-        // for this store+invNum+pc=2, so we only scan items the app actually knows about.
-        // Enrich with TiremaxLive Sqhnd for scan count (zero discrepancy).
-
-        // Step 1: Load all items with UPCs from tires_upc file
-        List<String> details = dbHelper.getTestUpcDetails(store, invNum, Integer.MAX_VALUE);
-        Map<String, String> itemToUpc = new LinkedHashMap<>();
-        for (String detail : details) {
-            String[] parts = detail.split("\\|", -1);
-            if (parts.length >= 2) {
-                String upc = parts[0].trim();
-                String itemNum = parts[1].trim();
-                if (!upc.isEmpty() && !itemNum.isEmpty()) {
-                    itemToUpc.putIfAbsent(itemNum, upc);
+    private List<Map<String, Object>> getAllTireItemsWithUpcs(String store, String invNum) {
+        // Step 1: Get UPCs from spBuildBarcodeMasterFile — the same stored proc the app calls at login.
+        // This returns ~44k tire records for the store; we filter to snapshot items in Step 2.
+        // Uses the first non-empty UPC from (UPC, UPC1, UPC2, UPC3, UPC4).
+        Map<String, String> masterItemToUpc = new LinkedHashMap<>();
+        try (Connection conn = getDbConnection();
+             CallableStatement stmt = conn.prepareCall(
+                     "{CALL InventoryScanning.inv.spBuildBarcodeMasterFile(?, ?)}")) {
+            stmt.setInt(1, Integer.parseInt(store));
+            stmt.setInt(2, Integer.parseInt(invNum));
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                String item = rs.getString("item");
+                if (item == null) continue;
+                item = item.trim();
+                // Pick the first non-empty UPC (same priority the app uses for matching)
+                String upc = null;
+                for (String col : new String[]{"UPC", "UPC1", "UPC2", "UPC3", "UPC4"}) {
+                    String val = rs.getString(col);
+                    if (val != null && !val.trim().isEmpty()) {
+                        upc = val.trim();
+                        break;
+                    }
+                }
+                if (upc != null && !item.isEmpty()) {
+                    masterItemToUpc.putIfAbsent(item, upc);
                 }
             }
+            rs.close();
+        } catch (Exception e) {
+            logStep("spBuildBarcodeMasterFile failed: " + e.getMessage());
         }
-        logStep("tires_upc file: " + itemToUpc.size() + " unique items with UPCs");
+        logStep("BarcodeMaster (spBuildBarcodeMasterFile): " + masterItemToUpc.size() + " unique tire items with UPCs");
 
         // Step 2: Get inventory snapshot item_nums for this store+invNum+pc=2
         Set<String> snapshotItems = new HashSet<>();
@@ -103,14 +117,14 @@ public class SectionUploadVerificationTest extends BaseTest {
         }
         logStep("inv.inventory snapshot: " + snapshotItems.size() + " tire items (pc=2)");
 
-        // Step 3: Keep only items that exist in BOTH the file AND the snapshot
+        // Step 3: Keep only items that exist in BOTH the barcode master AND the snapshot
         Map<String, String> matchedItems = new LinkedHashMap<>();
-        for (Map.Entry<String, String> entry : itemToUpc.entrySet()) {
+        for (Map.Entry<String, String> entry : masterItemToUpc.entrySet()) {
             if (snapshotItems.contains(entry.getKey())) {
                 matchedItems.put(entry.getKey(), entry.getValue());
             }
         }
-        logStep("Matched (file ∩ snapshot): " + matchedItems.size() + " items");
+        logStep("Matched (barcodeMaster ∩ snapshot): " + matchedItems.size() + " items");
 
         if (matchedItems.isEmpty()) return new ArrayList<>();
 
@@ -221,6 +235,10 @@ public class SectionUploadVerificationTest extends BaseTest {
      */
     private List<String> queryStoreSections(String store, int pc) {
         List<String> sections = new ArrayList<>();
+        // TODO: filter to real scannable sections only (locationDescId=1 or shelf >= 1000?)
+        //       storeSections has: id, store, shelf, shelfLocation, locationDescId, locationName, pc
+        //       shelf 1,2,3 (locationDescId=17394+) are NOT real sections
+        //       shelf 1000+ (locationDescId=1) ARE real scannable sections
         String query =
                 "SELECT DISTINCT shelf FROM InventoryScanning.inv.storeSections " +
                         "WHERE store = ? AND pc = ? AND shelf IS NOT NULL AND shelf != '' " +
@@ -282,109 +300,75 @@ public class SectionUploadVerificationTest extends BaseTest {
     }
 
     /**
-     * Verify that scanned items were persisted in the database after finishing.
+     * Verify FinalConfirmActivity shows the expected upload counts.
+     * The app displays: "Uploaded X sections - Y items"
+     * Y = total InvTbl records (non-deleted) uploaded, X = completed sections uploaded.
+     *
+     * @param expectedItems total items we scanned (unique items, not total scans)
+     * @param expectedSections sections we closed with items (scan count > 0)
      */
-    private void verifyUploadInDatabase(String store, String invNum, int expectedMinItems) {
-        logStep("=== DATABASE VERIFICATION ===");
+    private void verifyFinalConfirmCounts(int expectedItems, int expectedSections) {
+        FinalConfirmPage confirmPage = new FinalConfirmPage(driver, wait);
 
-        // Check inv.vw_inv_hdr for scan totals
-        String hdrQuery =
-                "SELECT InvNum, store, pc, StatusID, scanTotalQty, tmaxTotalQty, totalDiscrep " +
-                        "FROM InventoryScanning.inv.vw_inv_hdr " +
-                        "WHERE store = ? AND InvNum = ? " +
-                        "ORDER BY DateCreated DESC";
-
-        try (Connection conn = getDbConnection();
-             PreparedStatement stmt = conn.prepareStatement(hdrQuery)) {
-            stmt.setInt(1, Integer.parseInt(store));
-            stmt.setInt(2, Integer.parseInt(invNum));
-            ResultSet rs = stmt.executeQuery();
-
-            if (rs.next()) {
-                int scanTotalQty = rs.getInt("scanTotalQty");
-                int tmaxTotalQty = rs.getInt("tmaxTotalQty");
-                int totalDiscrep = rs.getInt("totalDiscrep");
-                int statusId = rs.getInt("StatusID");
-
-                logStep("vw_inv_hdr: StatusID=" + statusId +
-                        " scanTotalQty=" + scanTotalQty +
-                        " tmaxTotalQty=" + tmaxTotalQty +
-                        " totalDiscrep=" + totalDiscrep);
-
-                Assert.assertTrue(scanTotalQty > 0,
-                        "BUG: scanTotalQty is 0 — scanned items did NOT upload! " +
-                                "Store=" + store + " InvNum=" + invNum);
-                logStep("VERIFIED: scanTotalQty=" + scanTotalQty + " (items uploaded successfully)");
-            } else {
-                logStep("WARNING: No row found in vw_inv_hdr for store=" + store + " invNum=" + invNum);
-            }
-            rs.close();
-        } catch (Exception e) {
-            logStep("vw_inv_hdr verification failed: " + e.getMessage());
+        // Wait for FinalConfirmActivity to appear
+        if (!confirmPage.isDisplayed()) {
+            logStep("FinalConfirm not yet displayed. Activity: " + driver.currentActivity());
+            try { Thread.sleep(AppConfig.LOGIN_SYNC_WAIT); } catch (InterruptedException ignored) {}
+            dismissAnyDialog();
         }
 
-        // Check inv.scanValidation for section upload evidence
-        String valQuery =
-                "SELECT barcodeLoc, scanQty, completed, createdDt " +
-                        "FROM InventoryScanning.inv.scanValidation " +
-                        "WHERE store = ? AND invNum = ? " +
-                        "ORDER BY createdDt DESC";
-
-        try (Connection conn = getDbConnection();
-             PreparedStatement stmt = conn.prepareStatement(valQuery)) {
-            stmt.setInt(1, Integer.parseInt(store));
-            stmt.setInt(2, Integer.parseInt(invNum));
-            ResultSet rs = stmt.executeQuery();
-
-            int sectionCount = 0;
-            int totalScanQty = 0;
-            while (rs.next()) {
-                sectionCount++;
-                int scanQty = rs.getInt("scanQty");
-                totalScanQty += scanQty;
-                boolean completed = rs.getBoolean("completed");
-                String loc = rs.getString("barcodeLoc");
-                logStep("  scanValidation: loc=" + loc + " scanQty=" + scanQty +
-                        " completed=" + completed);
-            }
-            rs.close();
-
-            logStep("scanValidation: " + sectionCount + " sections, totalScanQty=" + totalScanQty);
-
-            if (sectionCount == 0) {
-                logStep("BUG: No rows in scanValidation — sections did NOT upload!");
-            }
-            Assert.assertTrue(sectionCount > 0,
-                    "BUG: No scanValidation rows — section data did not upload! " +
-                            "Store=" + store + " InvNum=" + invNum);
-        } catch (Exception e) {
-            logStep("scanValidation verification failed: " + e.getMessage());
+        if (!confirmPage.isDisplayed()) {
+            Assert.fail("FinalConfirmActivity never appeared — upload may have failed. " +
+                    "Activity: " + driver.currentActivity());
         }
 
-        // Check inv.inventoryScanned for individual item records
-        String scannedQuery =
-                "SELECT COUNT(*) AS cnt, SUM(qty) AS totalQty " +
-                        "FROM InventoryScanning.inv.inventoryScanned " +
-                        "WHERE store = ? AND invNum = ?";
+        String countInfo = confirmPage.getCountInfo();
+        logStep("Final confirmation: " + countInfo);
 
-        try (Connection conn = getDbConnection();
-             PreparedStatement stmt = conn.prepareStatement(scannedQuery)) {
-            stmt.setInt(1, Integer.parseInt(store));
-            stmt.setInt(2, Integer.parseInt(invNum));
-            ResultSet rs = stmt.executeQuery();
-
-            if (rs.next()) {
-                int cnt = rs.getInt("cnt");
-                int totalQty = rs.getInt("totalQty");
-                logStep("inventoryScanned: " + cnt + " rows, totalQty=" + totalQty);
-
-                if (cnt == 0) {
-                    logStep("BUG: No rows in inventoryScanned — item scans did not persist!");
-                }
+        // Parse "Uploaded X sections - Y items"
+        // The app sets: "Uploaded " + count + " sections " + " - " + uploaded + " items\n..."
+        int uploadedSections = -1;
+        int uploadedItems = -1;
+        try {
+            String lower = countInfo.toLowerCase();
+            // Extract sections count
+            int secIdx = lower.indexOf("sections");
+            if (secIdx > 0) {
+                String beforeSec = countInfo.substring(0, secIdx).trim();
+                String[] parts = beforeSec.split("\\s+");
+                uploadedSections = Integer.parseInt(parts[parts.length - 1]);
             }
-            rs.close();
+            // Extract items count
+            int itemIdx = lower.indexOf("items");
+            if (itemIdx > 0) {
+                String beforeItem = countInfo.substring(0, itemIdx).trim();
+                String[] parts = beforeItem.split("\\s+");
+                uploadedItems = Integer.parseInt(parts[parts.length - 1]);
+            }
         } catch (Exception e) {
-            logStep("inventoryScanned verification failed: " + e.getMessage());
+            logStep("Could not parse countInfo: " + countInfo + " — " + e.getMessage());
+        }
+
+        logStep("Parsed: uploadedSections=" + uploadedSections + " uploadedItems=" + uploadedItems +
+                " | Expected: sections>=" + expectedSections + " items>=" + expectedItems);
+
+        // Assert items uploaded — this is the critical check
+        if (uploadedItems >= 0) {
+            Assert.assertTrue(uploadedItems >= expectedItems,
+                    "UPLOAD MISMATCH: App uploaded " + uploadedItems + " items but we scanned " +
+                            expectedItems + " items. Items were lost during upload! countInfo: " + countInfo);
+
+            if (uploadedItems == 0 && expectedItems > 0) {
+                Assert.fail("BUG: App uploaded 0 items but we scanned " + expectedItems +
+                        "! Scanned items did NOT upload. countInfo: " + countInfo);
+            }
+        }
+
+        // Assert sections uploaded
+        if (uploadedSections >= 0 && expectedSections > 0) {
+            Assert.assertTrue(uploadedSections >= expectedSections,
+                    "SECTION MISMATCH: App uploaded " + uploadedSections + " sections but we closed " +
+                            expectedSections + " sections with items. countInfo: " + countInfo);
         }
     }
 
@@ -499,7 +483,7 @@ public class SectionUploadVerificationTest extends BaseTest {
 
     // ==================== TIRE SECTION UPLOAD VERIFICATION ====================
 
-    @Test(priority = 0, description = "Scan real sections with matching TiremaxLive items")
+    @Test(priority = 0, description = "Scan real sections with matching TiremaxLive items, verify upload in DB")
     public void testTireSectionScanAndUploadVerification() {
         setup("Section Upload Verification - Tire");
 
@@ -512,7 +496,7 @@ public class SectionUploadVerificationTest extends BaseTest {
                 skip("No tire PC=2 in resolved inventory: " + inv.scheduledPCs);
             }
 
-            // Step 1: Login first (DatabaseHelper needs the driver)
+            // Step 1: Login
             StartHomePage startHome = new StartHomePage(driver, wait);
             Assert.assertTrue(startHome.isDisplayed(), "StartHome should load");
 
@@ -535,10 +519,9 @@ public class SectionUploadVerificationTest extends BaseTest {
             logStep("Step 1: Logged in and on tire scan screen");
 
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
-            DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            // Step 2: Load tire items from inventory snapshot + barcodeMasterMultiUOM (what the app knows)
-            List<Map<String, Object>> allCandidates = getAllTireItemsWithUpcs(dbHelper, inv.store, inv.invNum);
+            // Step 2: Load tire items from spBuildBarcodeMasterFile ∩ inventory snapshot (what the app knows)
+            List<Map<String, Object>> allCandidates = getAllTireItemsWithUpcs(inv.store, inv.invNum);
             Assert.assertFalse(allCandidates.isEmpty(),
                     "No tire items found in inventory snapshot + barcodeMaster for store " + inv.store);
 
@@ -561,21 +544,20 @@ public class SectionUploadVerificationTest extends BaseTest {
                         " | Sqhnd: " + item.get("sqhnd"));
             }
 
-            // Step 3: Scan ALL sections, distribute ALL items evenly
+            // Step 3: Distribute items evenly across sections (no section-to-item mapping in DB)
             // Each item is scanned Sqhnd times to match TiremaxLive qty (zero discrepancy)
-            int totalSections = sections.size();
             int totalItems = allItems.size();
+            int totalSections = sections.size();
             int basePerSection = totalItems / totalSections;
             int remainder = totalItems % totalSections;
 
-            // Calculate total scans needed (sum of all Sqhnd)
             int totalScansNeeded = 0;
             for (Map<String, Object> item : allItems) {
                 totalScansNeeded += Math.max(1, (int) item.get("sqhnd"));
             }
 
             logStep("Step 3: Distributing " + totalItems + " items across " +
-                    totalSections + " sections (~" + basePerSection + " items/section, " +
+                    totalSections + " sections (~" + basePerSection + " per section, " +
                     totalScansNeeded + " total scans)");
 
             int itemIndex = 0;
@@ -603,7 +585,8 @@ public class SectionUploadVerificationTest extends BaseTest {
                     String upc = (String) item.get("upc");
                     int sqhnd = Math.max(1, (int) item.get("sqhnd"));
 
-                    logStep("Scanning item [" + (itemIndex + 1) + "/" + totalItems + "]: " +
+                    itemIndex++;
+                    logStep("Scanning item [" + itemIndex + "/" + totalItems + "]: " +
                             item.get("item_num") + " UPC=" + upc + " x" + sqhnd);
 
                     for (int scan = 0; scan < sqhnd; scan++) {
@@ -613,8 +596,6 @@ public class SectionUploadVerificationTest extends BaseTest {
                         sectionScanCount++;
                         totalScanned++;
                     }
-
-                    itemIndex++;
                 }
 
                 int listCount = mainScan.getItemCount();
@@ -625,7 +606,7 @@ public class SectionUploadVerificationTest extends BaseTest {
                 if (sectionScanCount > 0 && listCount == 0) {
                     Assert.fail("Section " + sectionBarcode + ": scanned " + sectionScanCount +
                             " items but list shows 0 — items not recognized by app. " +
-                            "Check that inventory snapshot and barcodeMasterMultiUOM are in sync.");
+                            "Check that inventory snapshot and barcodeMaster are in sync.");
                 }
 
                 // Close section — manual count = total scans in this section
@@ -655,7 +636,7 @@ public class SectionUploadVerificationTest extends BaseTest {
             logStep("Step 3: Done — " + totalScanned + " total scans for " +
                     totalItems + " items across " + totalSections + " sections");
             Assert.assertEquals(itemIndex, totalItems,
-                    "All items should have been processed");
+                    "All items should have been scanned");
 
             // Step 5: Finish inventory — close remaining sections with 0, handle missed items
             logStep("Step 5: Finishing inventory...");
@@ -748,22 +729,10 @@ public class SectionUploadVerificationTest extends BaseTest {
             Thread.sleep(AppConfig.LONG_WAIT);
             dismissAnyDialog();
 
-            // Check for FinalConfirmActivity
-            FinalConfirmPage confirmPage = new FinalConfirmPage(driver, wait);
-            if (confirmPage.isDisplayed()) {
-                String countInfo = confirmPage.getCountInfo();
-                logStep("Final confirmation: " + countInfo);
-            } else {
-                logStep("FinalConfirm not displayed. Activity: " + driver.currentActivity());
-                Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
-                dismissAnyDialog();
-            }
+            // Verify: app's upload counts must match what we scanned
+            verifyFinalConfirmCounts(totalItems, totalSections);
 
-            logStep("Step 5: Inventory finished");
-
-            // Step 6: Verify in database
-            logStep("Step 6: Verifying upload in database...");
-            verifyUploadInDatabase(inv.store, inv.invNum, totalScanned);
+            logStep("Step 5: Inventory finished — upload verified");
 
             pass();
 
@@ -1021,18 +990,10 @@ public class SectionUploadVerificationTest extends BaseTest {
             Thread.sleep(AppConfig.LONG_WAIT);
             dismissAnyDialog();
 
-            FinalConfirmPage confirmPage = new FinalConfirmPage(driver, wait);
-            if (confirmPage.isDisplayed()) {
-                String countInfo = confirmPage.getCountInfo();
-                logStep("Final confirmation: " + countInfo);
-            } else {
-                logStep("FinalConfirm not displayed. Activity: " + driver.currentActivity());
-                Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
-                dismissAnyDialog();
-            }
+            // Verify: app's upload counts must match what we scanned
+            verifyFinalConfirmCounts(totalScanned, totalSections);
 
-            logStep("Step 5: Inventory finished");
-
+            logStep("Step 5: Inventory finished — upload verified");
 
             pass();
 

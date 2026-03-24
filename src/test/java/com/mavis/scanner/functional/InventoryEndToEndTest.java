@@ -17,7 +17,8 @@ import org.openqa.selenium.WebElement;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
-import java.util.List;
+import java.sql.*;
+import java.util.*;
 
 /**
  * End-to-End inventory flow test.
@@ -111,6 +112,7 @@ public class InventoryEndToEndTest extends BaseTest {
             // ===== STEP 2: Login with dynamically resolved store + invCode =====
             loginPage.login(store, AppConfig.TEST_EMPLOYEE, invCode);
             Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+            if (loginPage.isDisplayed()) Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
             logStep("Step 2: Logged in with Store=" + store + " InvCode=" + invCode +
                     " Employee=" + AppConfig.TEST_EMPLOYEE);
 
@@ -142,46 +144,52 @@ public class InventoryEndToEndTest extends BaseTest {
     }
 
     private void runTireScanFlow(MainScanPage mainScan, DataWedgeHelper dwHelper) throws InterruptedException {
-        // ===== STEP 3: Load item data from tires_upc file =====
-        DatabaseHelper dbHelper = new DatabaseHelper(driver);
-        List<String> upcDetails = new java.util.ArrayList<>();
-        List<String> upcCodes = new java.util.ArrayList<>();
-
         String store = scheduledInventory.store;
         String invCode = scheduledInventory.invCode;
+        String invNum = scheduledInventory.invNum;
 
-        try {
-            upcDetails = dbHelper.getTestUpcDetails(store, invCode, 10);
-            upcCodes = dbHelper.getTestUpcs(store, invCode, 5);
-            int masterCount = dbHelper.getMasterListCount();
-            logStep("Step 3: Loaded " + masterCount + " items from master list");
-            logStep("Step 3: Got " + upcCodes.size() + " UPCs for scanning, " + upcDetails.size() + " items for adding");
-        } catch (Exception e) {
-            logStep("Step 3: Failed to load item data: " + e.getMessage());
+        // ===== STEP 3: Load tire items from spBuildBarcodeMasterFile ∩ inventory snapshot =====
+        List<Map<String, Object>> allItems = getAllTireItemsWithUpcs(store, invNum);
+        Assert.assertFalse(allItems.isEmpty(),
+                "No tire items found in inventory snapshot + barcodeMaster for store " + store);
+        logStep("Step 3: " + allItems.size() + " tire items available");
+
+        // Get section barcodes — only sections with pc=2 (tires)
+        List<String> sections = queryStoreSections(store, 2);
+        if (sections.isEmpty()) {
+            sections = new ArrayList<>(Arrays.asList(AppConfig.FALLBACK_SECTION_BARCODES));
+            logStep("Step 3: No pc=2 sections from DB, using fallback: " + sections);
+        } else {
+            logStep("Step 3: Found " + sections.size() + " tire sections (pc=2)");
         }
 
-        // ===== STEP 4: Scan a section barcode =====
-        dwHelper.scanSectionBarcode("STR-1000");
+        // Use first 5 items for scanning, next 5 for manual add
+        List<Map<String, Object>> scanItems = allItems.subList(0, Math.min(5, allItems.size()));
+        List<Map<String, Object>> addItems = allItems.size() > 5
+                ? allItems.subList(5, Math.min(10, allItems.size()))
+                : new ArrayList<>();
+
+        // ===== STEP 4: Scan section barcode =====
+        String sectionBarcode = sections.get(0);
+        dwHelper.scanSectionBarcode(sectionBarcode);
         Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
         dismissAnyDialog();
 
         String sectionOutput = mainScan.getSectionOutput();
-        logStep("Step 4: Scanned section STR-1000, output: " + sectionOutput);
+        logStep("Step 4: Scanned section " + sectionBarcode + ", output: " + sectionOutput);
 
         // ===== STEP 5: Scan 5 item UPC barcodes via DataWedge =====
         int scannedCount = 0;
-        for (int i = 0; i < Math.min(5, upcCodes.size()); i++) {
-            String upc = upcCodes.get(i);
+        for (int i = 0; i < scanItems.size(); i++) {
+            Map<String, Object> item = scanItems.get(i);
+            String upc = (String) item.get("upc");
             try {
-                logStep("Step 5: Scanning UPC [" + (i + 1) + "/5]: " + upc);
+                logStep("Step 5: Scanning UPC [" + (i + 1) + "/" + scanItems.size() + "]: " +
+                        item.get("item_num") + " UPC=" + upc);
                 dwHelper.scanItemBarcode(upc);
                 Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
                 dismissAnyDialog();
-
-                int currentCount = mainScan.getItemCount();
-                logStep("Step 5: Items after scan: " + currentCount);
                 scannedCount++;
-                Thread.sleep(AppConfig.SHORT_WAIT);
             } catch (Exception e) {
                 logStep("Step 5: Scan failed for UPC " + upc + ": " + e.getMessage());
             }
@@ -189,30 +197,17 @@ public class InventoryEndToEndTest extends BaseTest {
         logStep("Step 5: Scanned " + scannedCount + " UPC barcodes");
 
         // ===== STEP 6: Add 5 items via Add Item dialog =====
-        // Use items starting from index 5 (different from scanned ones)
         int totalItemsAdded = 0;
-        for (int itemIdx = 0; itemIdx < 5; itemIdx++) {
-            // Parse item number from detail string (format: UPC|Item|Description|Size)
-            String itemNumber;
-            int detailIdx = itemIdx + 5; // offset to avoid duplicating scanned items
+        for (int i = 0; i < addItems.size(); i++) {
+            Map<String, Object> item = addItems.get(i);
+            String itemNumber = (String) item.get("item_num");
 
-            if (detailIdx < upcDetails.size()) {
-                String[] parts = upcDetails.get(detailIdx).split("\\|");
-                itemNumber = (parts.length > 1 && !parts[1].isEmpty()) ? parts[1] : dbHelper.getValidItemNumber();
-            } else if (itemIdx < upcDetails.size()) {
-                String[] parts = upcDetails.get(itemIdx).split("\\|");
-                itemNumber = (parts.length > 1 && !parts[1].isEmpty()) ? parts[1] : dbHelper.getValidItemNumber();
-            } else {
-                itemNumber = dbHelper.getValidItemNumber();
-            }
-
-            logStep("Step 6: Adding item [" + (itemIdx + 1) + "/5]: " + itemNumber + " qty 1");
+            logStep("Step 6: Adding item [" + (i + 1) + "/" + addItems.size() + "]: " + itemNumber + " qty 1");
             try {
                 boolean added = addItemViaDialog(mainScan, itemNumber, "1");
                 if (added) {
                     totalItemsAdded++;
-                    int currentCount = mainScan.getItemCount();
-                    logStep("Step 6: Item added. Items in list: " + currentCount);
+                    logStep("Step 6: Item added. Items in list: " + mainScan.getItemCount());
                 } else {
                     logStep("Step 6: Item " + itemNumber + " was not added");
                 }
@@ -227,184 +222,135 @@ public class InventoryEndToEndTest extends BaseTest {
                 " (scanned " + scannedCount + " + added " + totalItemsAdded + ")");
 
         // ===== STEP 7: Close the section =====
-        // Manual count = actual items in the list
         String manualCount = String.valueOf(itemCount > 0 ? itemCount : (scannedCount + totalItemsAdded));
         if (manualCount.equals("0")) manualCount = "1";
 
         logStep("Step 7: Closing section (manual count: " + manualCount + ")...");
-        try {
-            scrollToBottom();
+        scrollToBottom();
+        mainScan.tapCloseSection();
+        Thread.sleep(AppConfig.SHORT_WAIT);
 
-            mainScan.tapCloseSection();
-            Thread.sleep(AppConfig.SHORT_WAIT);
+        By completeBtn = byText("Complete");
+        if (WaitHelper.isElementPresent(driver, completeBtn)) {
+            driver.findElement(completeBtn).click();
+        } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL)) {
+            driver.findElement(DIALOG_BUTTON_NEUTRAL).click();
+        } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
+            driver.findElement(DIALOG_BUTTON_POSITIVE).click();
+        }
+        Thread.sleep(AppConfig.SHORT_WAIT);
 
-            // Handle "Completing current section" dialog
-            By completeBtn = byText("Complete");
-            if (WaitHelper.isElementPresent(driver, completeBtn)) {
-                driver.findElement(completeBtn).click();
-            } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL)) {
-                driver.findElement(DIALOG_BUTTON_NEUTRAL).click();
-            } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
-                driver.findElement(DIALOG_BUTTON_POSITIVE).click();
-            }
-            Thread.sleep(AppConfig.SHORT_WAIT);
-
-            // ManualCountDialog - enter the actual count
-            ManualCountDialog countDialog = new ManualCountDialog(driver, wait);
-            if (countDialog.isDisplayed()) {
-                countDialog.closeWithCount(manualCount);
-                Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-                logStep("Step 7: Section closed with manual count " + manualCount);
-            } else {
-                logStep("Step 7: Manual count dialog did not appear");
-            }
-        } catch (Exception e) {
-            logStep("Step 7: Close section failed: " + e.getMessage());
+        ManualCountDialog countDialog = new ManualCountDialog(driver, wait);
+        if (countDialog.isDisplayed()) {
+            countDialog.closeWithCount(manualCount);
+            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            logStep("Step 7: Section closed with manual count " + manualCount);
         }
 
-        // ===== STEP 8: View Summary =====
-        try {
-            mainScan.tapSummary();
-            Thread.sleep(AppConfig.MEDIUM_WAIT);
-            logStep("Step 8: Viewed summary");
-            dismissAnyDialog();
-        } catch (Exception e) {
-            logStep("Step 8: Summary failed: " + e.getMessage());
-        }
+        logStep("Step 7: Done — " + scannedCount + " scanned + " + totalItemsAdded + " added in section " + sectionBarcode);
 
-        // ===== STEP 9: Log current state =====
-        String finalSectionOutput = mainScan.getSectionOutput();
-        logStep("Step 9: Final section output: " + finalSectionOutput);
+        // ===== STEP 5: Finish inventory =====
+        logStep("Step 5: Finishing inventory...");
+        scrollToBottom();
+        mainScan.tapFinish();
+        Thread.sleep(AppConfig.MEDIUM_WAIT);
 
-        // ===== STEP 10: Finish inventory =====
-        // Flow: Tap Finish -> Close remaining sections with 0 -> Confirm upload -> Handle packing list -> Final confirm
-        try {
-            // Parse total section count from the section output (e.g. "1 / 26" or "Section: STR-1000 1/26")
-            String sectionText = mainScan.getSectionOutput();
-            int totalSections = parseTotalSections(sectionText);
-            int closedByUs = 1; // We closed STR-1000 in step 7
-            int remainingSections = Math.max(totalSections - closedByUs, 0);
-            logStep("Step 10: Total sections: " + totalSections + ", remaining to close: " + remainingSections);
+        // Close ALL remaining/missed sections with 0, then confirm finish
+        By closeWith0Btn = byTextIgnoreCase("CLOSE WITH 0");
+        By goBackToScanBtn = byText("Go back to scan");
+        By yesFinishBtn = byTextIgnoreCase("YES");
+        int missedSectionsClosed = 0;
 
-            scrollToBottom();
-            mainScan.tapFinish();
-            Thread.sleep(AppConfig.MEDIUM_WAIT);
-            logStep("Step 10: Tapped Finish");
+        for (int attempt = 0; attempt < 200; attempt++) {
+            try {
+                org.openqa.selenium.WebElement found = WaitHelper.waitForAny(driver, 10,
+                        closeWith0Btn, yesFinishBtn, goBackToScanBtn);
+                String foundText = found.getText();
 
-            // Close each remaining open section with 0
-            // Flow: Finish -> "CLOSE WITH 0" -> dialog closes -> Finish again -> repeat until empty
-            By closeWith0Btn = byTextIgnoreCase("CLOSE WITH 0");
-            By yesFinishBtn = byTextIgnoreCase("YES");
-            int closedSections = 0;
-
-            for (int i = 0; i < remainingSections; i++) {
-                try {
-                    // Wait for "Close with 0" or "Yes" (all sections closed)
-                    org.openqa.selenium.WebElement found = WaitHelper.waitForAny(driver, 15,
-                            closeWith0Btn, yesFinishBtn);
-                    String foundText = found.getText();
-
-                    if (foundText.equalsIgnoreCase("CLOSE WITH 0")) {
-                        logStep("Step 10: Closing open section (" + (closedSections + 1) + "/" + remainingSections + ")...");
-                        found.click();
-                        closedSections++;
+                if (foundText.equalsIgnoreCase("CLOSE WITH 0")) {
+                    missedSectionsClosed++;
+                    if (missedSectionsClosed <= 5 || missedSectionsClosed % 10 == 0) {
+                        logStep("Closing missed section #" + missedSectionsClosed + " with 0");
+                    }
+                    found.click();
+                    Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+                    scrollToBottom();
+                    mainScan.tapFinish();
+                    Thread.sleep(AppConfig.MEDIUM_WAIT);
+                } else if (foundText.equalsIgnoreCase("YES")) {
+                    logStep("All sections closed (" + missedSectionsClosed +
+                            " missed sections closed with 0), confirming finish");
+                    found.click();
+                    Thread.sleep(AppConfig.LONG_WAIT);
+                    break;
+                } else if (foundText.equals("Go back to scan")) {
+                    if (WaitHelper.isElementPresent(driver, closeWith0Btn)) {
+                        driver.findElement(closeWith0Btn).click();
+                        missedSectionsClosed++;
+                        if (missedSectionsClosed <= 5 || missedSectionsClosed % 10 == 0) {
+                            logStep("Closing missed section #" + missedSectionsClosed + " with 0");
+                        }
                         Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-
-                        // Dialog closes, back on main screen - tap Finish again for the next section
                         scrollToBottom();
                         mainScan.tapFinish();
                         Thread.sleep(AppConfig.MEDIUM_WAIT);
-                    } else {
-                        // "Yes" appeared - all sections are closed
-                        logStep("Step 10: Finish dialog appeared, all sections already closed");
-                        break;
                     }
-                } catch (Exception e) {
-                    logStep("Step 10: No dialog appeared after Finish (section " + (i + 1) + "): " + e.getMessage());
-                    break;
                 }
-            }
-
-            if (closedSections > 0) {
-                logStep("Step 10: Closed " + closedSections + "/" + remainingSections + " remaining sections with 0");
-            }
-
-            // Handle "Finish whole inventory - Are you sure?" dialog
-            // "Yes" = button3 (neutral), "Exit" = button1 (positive)
-            try {
-                org.openqa.selenium.WebElement yesBtn = WaitHelper.waitForAny(driver, 10,
-                        yesFinishBtn, DIALOG_BUTTON_NEUTRAL);
-                logStep("Step 10: Confirming 'Finish whole inventory'");
-                yesBtn.click();
-                Thread.sleep(AppConfig.LONG_WAIT); // Wait for upload to process
             } catch (Exception e) {
-                logStep("Step 10: Finish confirmation dialog did not appear: " + e.getMessage());
+                logStep("No more finish dialogs after closing " + missedSectionsClosed +
+                        " missed sections: " + e.getMessage());
+                break;
             }
+        }
 
-            // Handle packing list wizard if it appears
-            // "Continue" = button3 (neutral), "Exit" = button1 (positive)
+        // Handle post-finish dialogs (packing list, upload confirmation)
+        for (int attempt = 0; attempt < 10; attempt++) {
             By continueBtn = byText("Continue");
-            if (WaitHelper.isElementPresent(driver, continueBtn)) {
-                logStep("Step 10: Packing list wizard appeared, tapping Continue");
+            By uploadBtn = byText("Upload");
+            By acceptBtn = byText("Accept");
+            By skipBtn = byText("Skip");
+
+            if (WaitHelper.isElementPresent(driver, uploadBtn)) {
+                logStep("Step 5: Tapping Upload");
+                driver.findElement(uploadBtn).click();
+                Thread.sleep(AppConfig.LONG_WAIT);
+                break;
+            } else if (WaitHelper.isElementPresent(driver, acceptBtn)) {
+                driver.findElement(acceptBtn).click();
+                Thread.sleep(AppConfig.MEDIUM_WAIT);
+            } else if (WaitHelper.isElementPresent(driver, skipBtn)) {
+                driver.findElement(skipBtn).click();
+                Thread.sleep(AppConfig.MEDIUM_WAIT);
+            } else if (WaitHelper.isElementPresent(driver, continueBtn)) {
                 driver.findElement(continueBtn).click();
                 Thread.sleep(AppConfig.MEDIUM_WAIT);
-
-                // The wizard may show individual items - keep dismissing with available buttons
-                for (int attempt = 0; attempt < 10; attempt++) {
-                    By uploadBtn = byText("Upload");
-                    By acceptBtn = byText("Accept");
-                    By skipBtn = byText("Skip");
-                    continueBtn = byText("Continue");
-
-                    if (WaitHelper.isElementPresent(driver, uploadBtn)) {
-                        logStep("Step 10: Tapping Upload");
-                        driver.findElement(uploadBtn).click();
-                        Thread.sleep(AppConfig.LONG_WAIT);
-                        break;
-                    } else if (WaitHelper.isElementPresent(driver, acceptBtn)) {
-                        driver.findElement(acceptBtn).click();
-                        Thread.sleep(AppConfig.MEDIUM_WAIT);
-                    } else if (WaitHelper.isElementPresent(driver, skipBtn)) {
-                        driver.findElement(skipBtn).click();
-                        Thread.sleep(AppConfig.MEDIUM_WAIT);
-                    } else if (WaitHelper.isElementPresent(driver, continueBtn)) {
-                        driver.findElement(continueBtn).click();
-                        Thread.sleep(AppConfig.MEDIUM_WAIT);
-                    } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL)) {
-                        driver.findElement(DIALOG_BUTTON_NEUTRAL).click();
-                        Thread.sleep(AppConfig.MEDIUM_WAIT);
-                    } else {
-                        break;
-                    }
-                }
-            }
-
-            // Wait for upload/processing to complete
-            Thread.sleep(AppConfig.LONG_WAIT);
-
-            // Dismiss any remaining dialogs (upload status, errors, etc.)
-            dismissAnyDialog();
-            Thread.sleep(AppConfig.SHORT_WAIT);
-
-            // Check for FinalConfirmActivity
-            FinalConfirmPage confirmPage = new FinalConfirmPage(driver, wait);
-            if (confirmPage.isDisplayed()) {
-                String countInfo = confirmPage.getCountInfo();
-                logStep("Step 10: Final confirmation: " + countInfo);
-                confirmPage.tapLogout();
-                logStep("Step 10: Logged out");
+            } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL)) {
+                driver.findElement(DIALOG_BUTTON_NEUTRAL).click();
+                Thread.sleep(AppConfig.MEDIUM_WAIT);
             } else {
-                logStep("Step 10: Upload may still be processing. Activity: " + driver.currentActivity());
-                // Wait longer for upload
-                Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
-                dismissAnyDialog();
-                if (confirmPage.isDisplayed()) {
-                    confirmPage.tapLogout();
-                    logStep("Step 10: Logged out after extended wait");
-                }
+                break;
             }
-        } catch (Exception e) {
-            logStep("Step 10: Finish failed: " + e.getMessage());
+        }
+
+        // Wait for upload processing
+        Thread.sleep(AppConfig.LONG_WAIT);
+        dismissAnyDialog();
+
+        // Check for FinalConfirmActivity
+        FinalConfirmPage confirmPage = new FinalConfirmPage(driver, wait);
+        if (confirmPage.isDisplayed()) {
+            String countInfo = confirmPage.getCountInfo();
+            logStep("Step 5: Final confirmation: " + countInfo);
+            confirmPage.tapLogout();
+            logStep("Step 5: Logged out");
+        } else {
+            logStep("Step 5: Upload may still be processing. Activity: " + driver.currentActivity());
+            Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+            dismissAnyDialog();
+            if (confirmPage.isDisplayed()) {
+                confirmPage.tapLogout();
+                logStep("Step 5: Logged out after extended wait");
+            }
         }
     }
 
@@ -1133,6 +1079,154 @@ public class InventoryEndToEndTest extends BaseTest {
         } catch (Exception e) {
             // No dialog to dismiss
         }
+    }
+
+    // ==================== DB HELPERS ====================
+
+    private Connection getDbConnection() throws Exception {
+        String url = String.format(
+                "jdbc:sqlserver://%s:%s;databaseName=%s;encrypt=true;trustServerCertificate=true;",
+                AppConfig.DB_SERVER, AppConfig.DB_PORT, AppConfig.DB_INVENTORY);
+        return DriverManager.getConnection(url, AppConfig.DB_USERNAME, AppConfig.DB_PASSWORD);
+    }
+
+    private List<Map<String, Object>> getAllTireItemsWithUpcs(String store, String invNum) {
+        Map<String, String> masterItemToUpc = new LinkedHashMap<>();
+        try (Connection conn = getDbConnection();
+             CallableStatement stmt = conn.prepareCall(
+                     "{CALL InventoryScanning.inv.spBuildBarcodeMasterFile(?, ?)}")) {
+            stmt.setInt(1, Integer.parseInt(store));
+            stmt.setInt(2, Integer.parseInt(invNum));
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                String item = rs.getString("item");
+                if (item == null) continue;
+                item = item.trim();
+                String upc = null;
+                for (String col : new String[]{"UPC", "UPC1", "UPC2", "UPC3", "UPC4"}) {
+                    String val = rs.getString(col);
+                    if (val != null && !val.trim().isEmpty()) {
+                        upc = val.trim();
+                        break;
+                    }
+                }
+                if (upc != null && !item.isEmpty()) {
+                    masterItemToUpc.putIfAbsent(item, upc);
+                }
+            }
+            rs.close();
+        } catch (Exception e) {
+            logStep("spBuildBarcodeMasterFile failed: " + e.getMessage());
+        }
+        logStep("BarcodeMaster (spBuildBarcodeMasterFile): " + masterItemToUpc.size() + " unique tire items with UPCs");
+
+        Set<String> snapshotItems = new HashSet<>();
+        try (Connection conn = getDbConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                     "SELECT item_num FROM InventoryScanning.inv.inventory " +
+                             "WHERE store = ? AND inv_num = ? AND pc = 2")) {
+            stmt.setInt(1, Integer.parseInt(store));
+            stmt.setInt(2, Integer.parseInt(invNum));
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                snapshotItems.add(rs.getString("item_num").trim());
+            }
+            rs.close();
+        } catch (Exception e) {
+            logStep("Inventory snapshot query failed: " + e.getMessage());
+        }
+        logStep("inv.inventory snapshot: " + snapshotItems.size() + " tire items (pc=2)");
+
+        Map<String, String> matchedItems = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : masterItemToUpc.entrySet()) {
+            if (snapshotItems.contains(entry.getKey())) {
+                matchedItems.put(entry.getKey(), entry.getValue());
+            }
+        }
+        logStep("Matched (barcodeMaster ∩ snapshot): " + matchedItems.size() + " items");
+
+        if (matchedItems.isEmpty()) return new ArrayList<>();
+
+        List<Map<String, Object>> items = new ArrayList<>();
+        List<String> itemNums = new ArrayList<>(matchedItems.keySet());
+        int batchSize = 500;
+
+        for (int batch = 0; batch < itemNums.size(); batch += batchSize) {
+            int end = Math.min(batch + batchSize, itemNums.size());
+            List<String> batchItems = itemNums.subList(batch, end);
+
+            StringBuilder inClause = new StringBuilder();
+            for (int i = 0; i < batchItems.size(); i++) {
+                if (i > 0) inClause.append(",");
+                inClause.append("'").append(batchItems.get(i).replace("'", "''")).append("'");
+            }
+
+            String query = "SELECT Sitem, Sqhnd FROM TiremaxLive.dbo.invloc " +
+                    "WHERE Sstor = ? AND Sqhnd > 0 AND Sitem IN (" + inClause + ")";
+
+            try (Connection conn = getDbConnection();
+                 PreparedStatement stmt = conn.prepareStatement(query)) {
+                stmt.setInt(1, Integer.parseInt(store));
+                ResultSet rs = stmt.executeQuery();
+                while (rs.next()) {
+                    String sitem = rs.getString("Sitem").trim();
+                    int sqhnd = rs.getInt("Sqhnd");
+                    String upc = matchedItems.get(sitem);
+                    if (upc != null) {
+                        Map<String, Object> item = new HashMap<>();
+                        item.put("item_num", sitem);
+                        item.put("upc", upc);
+                        item.put("sqhnd", sqhnd);
+                        items.add(item);
+                    }
+                }
+                rs.close();
+            } catch (Exception e) {
+                logStep("TiremaxLive lookup failed (batch " + batch + "): " + e.getMessage());
+            }
+        }
+
+        if (items.isEmpty() && !matchedItems.isEmpty()) {
+            logStep("TiremaxLive returned 0 matches — using snapshot items with sqhnd=1");
+            for (Map.Entry<String, String> entry : matchedItems.entrySet()) {
+                Map<String, Object> item = new HashMap<>();
+                item.put("item_num", entry.getKey());
+                item.put("upc", entry.getValue());
+                item.put("sqhnd", 1);
+                items.add(item);
+            }
+        }
+
+        items.sort(Comparator.comparingInt(a -> (int) a.get("sqhnd")));
+
+        logStep("Final: " + items.size() + " tire items with UPCs for store " + store);
+        return items;
+    }
+
+    private List<String> queryStoreSections(String store, int pc) {
+        List<String> sections = new ArrayList<>();
+        String query =
+                "SELECT DISTINCT shelf FROM InventoryScanning.inv.storeSections " +
+                        "WHERE store = ? AND pc = ? AND shelf IS NOT NULL AND shelf != '' " +
+                        "ORDER BY shelf";
+
+        try (Connection conn = getDbConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setInt(1, Integer.parseInt(store));
+            stmt.setInt(2, pc);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                String shelf = rs.getString("shelf");
+                if (shelf != null && !shelf.trim().isEmpty()) {
+                    sections.add("STR-" + shelf.trim());
+                }
+            }
+            rs.close();
+        } catch (Exception e) {
+            logStep("Section query failed (pc=" + pc + "): " + e.getMessage());
+        }
+
+        return sections;
     }
 
     /**

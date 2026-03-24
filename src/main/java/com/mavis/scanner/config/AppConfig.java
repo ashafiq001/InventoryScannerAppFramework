@@ -7,10 +7,12 @@ public class AppConfig {
 
     // ==================== DEVICE & APPIUM ====================
     public static final String APPIUM_URL = "http://127.0.0.1:4723";
-    public static final String DEVICE_UDID = "24028524700126";
+    public static final String DEVICE_UDID ="23167524701232";
     public static final String PLATFORM_NAME = "Android";
     public static final String AUTOMATION_NAME = "UiAutomator2";
 
+
+    //"24028524700126";
     // ==================== APP UNDER TEST ====================
     public static final String APP_PACKAGE = "com.mavis.inventory_barcode_scanner";
     // Xamarin CRC-hashed activity prefix

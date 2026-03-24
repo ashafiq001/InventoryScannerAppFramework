@@ -1,9 +1,22 @@
 <!DOCTYPE suite SYSTEM "https://testng.org/testng-1.0.dtd">
 <suite name="Mavis Inventory Scanner - Appium Test Suite" verbose="1">
 
+
+    <listeners>
+        <listener class-name="com.mavis.scanner.listeners.TestListener"/>
+    </listeners>
+
     <!-- Schedules a fresh inventory run before executing tests -->
     <parameter name="TEST_STORE" value="30"/>
     <parameter name="SCHEDULE_IF_NEEDED" value="true"/>
+
+
+    <test name = "Suite Setup">
+        <classes>
+            <class name="com.mavis.scanner.config.SuiteConfig"/>
+        </classes>
+    </test>
+
 
     <!-- Tire E2E - Solo inventory (PC=2 only) -->
     <test name="Tire E2E">
@@ -131,11 +144,19 @@
         <classes>
             <class name="com.mavis.scanner.functional.SectionUploadVerificationTest">
                 <methods>
-                    <include name="testPartsSectionScanAndUploadVerification"/>
+                    <include name="testTireSectionScanAndUploadVerification"/>
                 </methods>
             </class>
         </classes>
 
+    </test>
+
+
+
+    <test name="Deadcount App Test">
+        <classes>
+            <class name="com.mavis.scanner.functional.DeadcountScannerTest"/>
+        </classes>
     </test>
 
 

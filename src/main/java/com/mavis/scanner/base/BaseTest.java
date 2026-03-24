@@ -62,7 +62,7 @@ public abstract class BaseTest {
         System.out.println("[BaseTest] Starting Appium server...");
 
         ProcessBuilder pb = new ProcessBuilder("C:\\Users\\ashafiq\\AppData\\Roaming\\npm\\appium.cmd",
-                "--address", "127.0.0.1", "--port", "4723");
+                "--address", "127.0.0.1", "--port", "4723","--allow-insecure", "adb_shell");
         pb.redirectErrorStream(true);
         // Send output to a log file so it doesn't flood the console
         pb.redirectOutput(new File("test-reports/appium-server.log"));
@@ -134,12 +134,8 @@ public abstract class BaseTest {
     public void flushExtentReport() {
         if (extent != null) {
             extent.flush();
-            System.out.println("[ExtentReport] Report flushed");
-            String reportPath = reportDir + "/latest-report.html";
-            String summary = "Suite: Mavis Inventory Scanner | Completed at: " + LocalDateTime.now().format(TIME_FMT);
-            EmailHelper.sendReport(reportPath, "Mavis Inventory Scanner", summary);
+            System.out.println("[ExtentReport] Report flushed to disk.");
         }
-
     }
 
     @AfterSuite(alwaysRun = true)
@@ -214,6 +210,42 @@ public abstract class BaseTest {
             wait = new WebDriverWait(driver, Duration.ofSeconds(AppConfig.DEFAULT_TIMEOUT));
 
             logStep("Driver initialized, app launched");
+
+        } catch (MalformedURLException e) {
+            throw new RuntimeException("Invalid Appium URL: " + AppConfig.APPIUM_URL, e);
+        }
+    }
+
+    /**
+     * Attach to an already-running app session without restarting.
+     * Use this when the app is already open and logged in.
+     */
+    protected void attach(String testName) {
+        this.testName = testName;
+        this.startTime = LocalDateTime.now();
+        steps.clear();
+
+        System.out.println("\n" + "=".repeat(70));
+        System.out.println("TEST (attach): " + testName);
+        System.out.println("START: " + startTime.format(TIME_FMT));
+        System.out.println("=".repeat(70));
+
+        try {
+            UiAutomator2Options options = new UiAutomator2Options();
+            options.setPlatformName(AppConfig.PLATFORM_NAME);
+            options.setAutomationName(AppConfig.AUTOMATION_NAME);
+            options.setUdid(AppConfig.DEVICE_UDID);
+            options.setAppPackage(AppConfig.APP_PACKAGE);
+            options.setNoReset(true);
+            options.setCapability("autoLaunch", false);
+            options.setCapability("skipDeviceInitialization", true);
+            options.setCapability("skipServerInstallation", true);
+            options.setNewCommandTimeout(Duration.ofSeconds(300));
+
+            driver = new AndroidDriver(new URL(AppConfig.APPIUM_URL), options);
+            wait = new WebDriverWait(driver, Duration.ofSeconds(AppConfig.DEFAULT_TIMEOUT));
+
+            logStep("Attached to running app. Activity: " + driver.currentActivity());
 
         } catch (MalformedURLException e) {
             throw new RuntimeException("Invalid Appium URL: " + AppConfig.APPIUM_URL, e);

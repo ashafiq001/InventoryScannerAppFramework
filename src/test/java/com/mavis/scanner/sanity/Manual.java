@@ -26,8 +26,8 @@ public class Manual extends BaseTest {
         //scan.scan("00662498001213");
 
         //scan.scan("26937357203267");
-        scan.scan("092971282356");
-        scan.scan("09297128235");
+        //scan.scan("092971282356");
+        //scan.scan("09297128235");
 
        //scan.closeSection();
 

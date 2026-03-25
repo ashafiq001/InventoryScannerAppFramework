@@ -166,6 +166,20 @@ public class DeadcountScannerTest {
             // Scan a section
             scanSection("STR-1002");
 
+            // Wait for count dialog or an intermediate dialog (e.g. duplicate warning)
+            try {
+                WaitHelper.waitForAny(driver, AppConfig.DEFAULT_TIMEOUT,
+                        TXT_COUNT, DIALOG_POSITIVE);
+            } catch (Exception e) {
+                // timeout — neither appeared
+            }
+
+            // If a non-count dialog appeared first, dismiss it and wait for count dialog
+            if (!isCountDialogDisplayed() && WaitHelper.isElementPresent(driver, DIALOG_POSITIVE)) {
+                driver.findElement(DIALOG_POSITIVE).click();
+                Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            }
+
             // Count dialog should appear
             Assert.assertTrue(waitForCountDialog(),
                     "DEADCOUNT BUG: Count dialog did not appear after scanning section");
@@ -225,6 +239,21 @@ public class DeadcountScannerTest {
             login();
 
             scanSection("STR-1002");
+
+            // Wait for count dialog or an intermediate dialog (e.g. duplicate warning)
+            try {
+                WaitHelper.waitForAny(driver, AppConfig.DEFAULT_TIMEOUT,
+                        TXT_COUNT, DIALOG_POSITIVE);
+            } catch (Exception e) {
+                // timeout — neither appeared
+            }
+
+            // If a non-count dialog appeared first, dismiss it and wait for count dialog
+            if (!isCountDialogDisplayed() && WaitHelper.isElementPresent(driver, DIALOG_POSITIVE)) {
+                driver.findElement(DIALOG_POSITIVE).click();
+                Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            }
+
             Assert.assertTrue(waitForCountDialog(), "Count dialog should appear");
 
             // Enter 251 (over max)

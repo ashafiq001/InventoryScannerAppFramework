@@ -100,6 +100,27 @@ public class DataWedgeHelper {
     }
 
     /**
+     * Splits an "am start ..." command string into individual arguments,
+     * stripping the leading "am" (since we pass "am" as the command directly).
+     * Handles quoted strings so extras like "STR-1002" stay as single args.
+     */
+    private java.util.List<String> buildAmArgs(String command) {
+        java.util.List<String> args = new java.util.ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "\"([^\"]*)\"|'([^']*)'|(\\S+)").matcher(command);
+        while (m.find()) {
+            if (m.group(1) != null) args.add(m.group(1));
+            else if (m.group(2) != null) args.add(m.group(2));
+            else args.add(m.group(3));
+        }
+        // Remove leading "am" since it's now the command itself
+        if (!args.isEmpty() && args.get(0).equals("am")) {
+            args.remove(0);
+        }
+        return args;
+    }
+
+    /**
      * Execute an ADB shell command.
      * Tries Appium's mobile:shell first (requires --allow-insecure=adb_shell).
      * Falls back to direct adb command via ProcessBuilder if mobile:shell is blocked.
@@ -108,8 +129,8 @@ public class DataWedgeHelper {
         try {
             // Primary: use Appium's mobile:shell (fast, in-process)
             Map<String, Object> args = new HashMap<>();
-            args.put("command", "sh");
-            args.put("args", Arrays.asList("-c", command));
+            args.put("command", "am");
+            args.put("args", buildAmArgs(command));
             driver.executeScript("mobile: shell", args);
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("adb_shell")) {

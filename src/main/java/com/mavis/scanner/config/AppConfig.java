@@ -41,7 +41,7 @@ public class AppConfig {
     public static final String DW_KEY_SOURCE = "com.symbol.datawedge.source";
 
     // ==================== TEST CREDENTIALS ====================
-    public static final String TEST_STORE = "30";
+    public static final String TEST_STORE = "2030";
     public static final String TEST_EMPLOYEE = "421628";
     public static final String TEST_INV_CODE = "63727"; // Override per environment
 

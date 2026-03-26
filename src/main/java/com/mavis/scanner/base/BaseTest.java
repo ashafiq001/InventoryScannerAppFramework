@@ -61,8 +61,8 @@ public abstract class BaseTest {
     public void startAppiumServer() throws Exception {
         System.out.println("[BaseTest] Starting Appium server...");
 
-        ProcessBuilder pb = new ProcessBuilder("C:\\Users\\ashafiq\\AppData\\Roaming\\npm\\appium.cmd",
-                "--address", "127.0.0.1", "--port", "4723","--allow-insecure", "adb_shell");
+        ProcessBuilder pb = new ProcessBuilder("/C:\\Users\\ashafiq\\AppData\\Roaming\\npm\\appium.cmd",
+                "--address", "127.0.0.1", "--port", "4723","--allow-insecure", "*:adb_shell");
         pb.redirectErrorStream(true);
         // Send output to a log file so it doesn't flood the console
         pb.redirectOutput(new File("test-reports/appium-server.log"));
@@ -203,8 +203,8 @@ public abstract class BaseTest {
             options.setFullReset(false);
             options.setNewCommandTimeout(Duration.ofSeconds(300));
             options.setCapability("autoGrantPermissions", true);
-            options.setCapability("skipDeviceInitialization", false);
-            options.setCapability("skipServerInstallation", false);
+            options.setCapability("skipDeviceInitialization", true);
+            options.setCapability("skipServerInstallation", true);
 
             driver = new AndroidDriver(new URL(AppConfig.APPIUM_URL), options);
             wait = new WebDriverWait(driver, Duration.ofSeconds(AppConfig.DEFAULT_TIMEOUT));

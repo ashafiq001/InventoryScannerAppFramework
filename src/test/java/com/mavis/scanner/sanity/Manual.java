@@ -19,9 +19,9 @@ public class Manual extends BaseTest {
 //        scan.closeSection();
 
 
-        scan.scan("STR-5008");
-        //scan.scan("8936096303782",1);
-        //scan.scan("71545961251",1);
+        scan.scan("STR-1002");
+        scan.scan("092971284596",1);
+        scan.scan("092971282455",3);
         //scan.scan("092971283155",2);
         //scan.scan("00662498001213");
 
@@ -29,11 +29,9 @@ public class Manual extends BaseTest {
         //scan.scan("092971282356");
         //scan.scan("09297128235");
 
-       //scan.closeSection();
+       scan.closeSection();
 
-//        scan.scan("00074130066274");
-//        scan.scan("074130048812");
-//        scan.scan("074130066304");
+
 
 
 

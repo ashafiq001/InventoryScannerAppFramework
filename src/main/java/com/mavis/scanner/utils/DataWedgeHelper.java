@@ -69,6 +69,21 @@ public class DataWedgeHelper {
     }
 
     /**
+     * Simulate a battery receive barcode scan.
+     */
+    public void scanBatteryReceiveBarcode(String upcCode) {
+        simulateScan(upcCode, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_BATTERY_RECEIVE);
+    }
+
+    /**
+     * Simulate a battery return barcode scan.
+     */
+    public void scanBatteryReturnBarcode(String upcCode) {
+        simulateScan(upcCode, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_BATTERY_RETURNS);
+    }
+
+
+    /**
      * Simulate a parts category barcode scan.
      */
     public void scanCategoryBarcode(String barcode) {
@@ -95,6 +110,10 @@ public class DataWedgeHelper {
             return AppConfig.ACTIVITY_PARTS_PC;
         } else if (intentAction.equals(AppConfig.DW_ACTION_BATTERY)) {
             return AppConfig.ACTIVITY_BATTERY_RETURN;
+        }else if (intentAction.equals(AppConfig.DW_ACTION_BATTERY_RETURNS)) {
+            return AppConfig.ACTIVITY_BATTERY_RETURN;
+        } else if (intentAction.equals(AppConfig.DW_ACTION_BATTERY_RECEIVE)) {
+            return AppConfig.ACTIVITY_BATTERY_RECEIVE;
         }
         return "";
     }
@@ -151,7 +170,7 @@ public class DataWedgeHelper {
             String adbPath = AppConfig.ADB_PATH;
 
             ProcessBuilder pb = new ProcessBuilder(
-                    adbPath, "-s", AppConfig.DEVICE_UDID, "shell", command
+                    adbPath, "-s", AppConfig.getDeviceUDID(), "shell", command
             );
             pb.redirectErrorStream(true);
             Process process = pb.start();

@@ -14,6 +14,7 @@ import org.openqa.selenium.support.ui.WebDriverWait;
  */
 public class StartHomePage {
 
+
     private final AndroidDriver driver;
     private final WebDriverWait wait;
 
@@ -21,6 +22,7 @@ public class StartHomePage {
     private static final By TITLE = By.id("com.mavis.inventory_barcode_scanner:id/loginTitle");
     private static final By TITLE_NOTE = By.id("com.mavis.inventory_barcode_scanner:id/loginTitleNote");
     private static final By BTN_INVENTORY = By.id("com.mavis.inventory_barcode_scanner:id/btnInv");
+    private static final By BTN_BATTERY = By.id("com.mavis.inventory_barcode_scanner:id/btnBatt");
     private static final By INV_INFO = By.id("com.mavis.inventory_barcode_scanner:id/invInfo");
     private static final By APP_VERSION = By.id("com.mavis.inventory_barcode_scanner:id/appVersion");
     private static final By APP_LOGO = By.id("com.mavis.inventory_barcode_scanner:id/imageView");
@@ -65,4 +67,14 @@ public class StartHomePage {
         WaitHelper.waitAndClick(wait, BTN_INVENTORY);
         return new LoginPage(driver, wait);
     }
+
+    /**
+     * Tap "Battery Receive - Return" to navigate to BatteryLogin.
+     */
+    public void tapBattery() {
+        WaitHelper.waitAndClick(wait, BTN_BATTERY);
+    }
+
+
+    
 }

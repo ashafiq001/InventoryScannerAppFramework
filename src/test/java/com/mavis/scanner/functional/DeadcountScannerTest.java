@@ -89,13 +89,15 @@ public class DeadcountScannerTest {
         UiAutomator2Options options = new UiAutomator2Options();
         options.setPlatformName(AppConfig.PLATFORM_NAME);
         options.setAutomationName(AppConfig.AUTOMATION_NAME);
-        options.setUdid(AppConfig.DEVICE_UDID);
+        options.setUdid(AppConfig.getDeviceUDID());
         options.setAppPackage(DeadcountConfig.APP_PACKAGE);
         options.setAppActivity(DeadcountConfig.APP_ACTIVITY);
         options.setNoReset(false);
         options.setFullReset(false);
         options.setNewCommandTimeout(Duration.ofSeconds(300));
         options.setCapability("autoGrantPermissions", true);
+        options.setCapability("skipDeviceInitialization", true);
+        options.setCapability("skipServerInstallation", true);
 
         driver = new AndroidDriver(new URL(AppConfig.APPIUM_URL), options);
         wait = new WebDriverWait(driver, Duration.ofSeconds(AppConfig.DEFAULT_TIMEOUT));
@@ -694,7 +696,7 @@ public class DeadcountScannerTest {
         } catch (Exception e) {
             // Fallback to direct ADB
             try {
-                new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.DEVICE_UDID, "shell", command)
+                new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.getDeviceUDID(), "shell", command)
                         .redirectErrorStream(true).start().waitFor();
             } catch (Exception ex) {
                 System.err.println("Failed to scan section: " + ex.getMessage());

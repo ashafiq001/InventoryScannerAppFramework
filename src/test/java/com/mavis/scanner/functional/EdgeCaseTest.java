@@ -38,7 +38,7 @@ import java.util.*;
 
 
 
-        public class EdgeCaseTest extends BaseTest {
+public class EdgeCaseTest extends BaseTest {
 
     private static final By DIALOG_BUTTON_POSITIVE = By.id("android:id/button1");
     private static final By DIALOG_BUTTON_NEGATIVE = By.id("android:id/button2");
@@ -48,15 +48,22 @@ import java.util.*;
 
     private ScheduledInventory resolveTireInventory() {
         ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+        activeInvNum = inv.invNum;
+        activeInvCode = inv.invCode;
         logStep("Resolved inventory: " + inv);
         if (!inv.scheduledPCs.isEmpty() && !inv.scheduledPCs.contains(2)) {
             skip("No tire PC=2 in resolved inventory: " + inv.scheduledPCs);
+        }
+        if(inv.scheduledPCs.isEmpty()) {
+            logStep("Warning No PCs listed - inventory may route to unexpected screen");
         }
         return inv;
     }
 
     private ScheduledInventory resolvePartsInventory() {
         ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+        activeInvNum = inv.invNum;
+        activeInvCode = inv.invCode;
         logStep("Resolved inventory: " + inv);
         if (!inv.scheduledPCs.isEmpty() && inv.scheduledPCs.size() == 1 && inv.scheduledPCs.contains(2)) {
             skip("Tire-only inventory. Need parts PCs.");
@@ -74,6 +81,7 @@ import java.util.*;
         loginPage.login(inv.store, AppConfig.TEST_EMPLOYEE, inv.invCode);
         Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
         if (loginPage.isDisplayed()) Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+        dismissAnyDialog();
 
         MainScanPage mainScan = new MainScanPage(driver, wait);
         if (!mainScan.isDisplayed()) {
@@ -82,6 +90,7 @@ import java.util.*;
                 skip("App routed to PartsPCActivity");
             }
             Thread.sleep(AppConfig.LONG_WAIT);
+            dismissAnyDialog();
         }
         Assert.assertTrue(mainScan.isDisplayed(), "Should be on tire scan screen");
         return mainScan;
@@ -229,8 +238,9 @@ import java.util.*;
             if (appAlive) {
                 logStep("App survived STR- barcode without crashing");
             } else {
-                String activity = driver.currentActivity();
-                logStep("BUG: App may have crashed. Activity: " + activity);
+                logStep("KNOWN: App crashed on STR- (int.Parse on empty string). " +
+                        "Not a real user scenario — scanners don't produce empty barcodes. " +
+                        "Activity: " + driver.currentActivity());
             }
 
             pass();
@@ -263,8 +273,9 @@ import java.util.*;
             if (appAlive) {
                 logStep("App survived STR-ABC without crashing");
             } else {
-                String activity = driver.currentActivity();
-                logStep("BUG: App may have crashed on STR-ABC. Activity: " + activity);
+                logStep("KNOWN: App crashed on STR-ABC (int.Parse on non-numeric). " +
+                        "Not a real user scenario — scanners produce valid section barcodes. " +
+                        "Activity: " + driver.currentActivity());
             }
 
             pass();
@@ -310,16 +321,19 @@ import java.util.*;
             String sectionOutput = mainScan.getSectionOutput();
             logStep("Count: " + initialCount + " -> " + afterCount + " | Section: " + sectionOutput);
 
-            // Document: did the app switch sections, add it as an item, or ignore it?
-            if (sectionOutput.contains(secondSection.replace("STR-", ""))) {
-                logStep("RESULT: App switched to the new section (treated as section scan)");
-            } else if (afterCount > initialCount) {
-                logStep("RESULT: Section barcode was added as an item — potential bug");
-            } else {
-                logStep("RESULT: Section barcode ignored when scanning as item");
-            }
-
             Assert.assertTrue(mainScan.isDisplayed(), "App should remain on scan screen");
+
+            // Section barcode scanned as item should NOT be added as an inventory item
+            Assert.assertFalse(afterCount > initialCount,
+                    "CROSS-CONTAMINATION BUG: Section barcode '" + secondSection +
+                            "' was added as an inventory item. Count went from " +
+                            initialCount + " to " + afterCount);
+
+            if (sectionOutput.contains(secondSection.replace("STR-", ""))) {
+                logStep("App switched to the new section (treated as section scan)");
+            } else {
+                logStep("Section barcode correctly ignored when scanned as item");
+            }
 
             pass();
 
@@ -911,6 +925,73 @@ import java.util.*;
 
         } catch (Exception e) {
             fail("Section reuse test failed: " + e.getMessage(), e);
+        } finally {
+            teardown();
+        }
+    }
+
+    // ==================== SIA-1219: PC 80 ENGINE CLEANING KIT ====================
+
+    @Test(priority = 11, description = "SIA-1219: PC 80 (Engine Cleaning Kit) appears in parts category list and can be scanned")
+    public void testPc80EngineCleanKitRecognized() {
+        setup("SIA-1219 - PC 80 Engine Clean Kit");
+
+        try {
+            ScheduledInventory inv = resolvePartsInventory();
+            PartsCategoryPage partsCategory = fullLoginToPartsCategory(inv);
+
+            // Check if PC 80 appears in the category list
+            int categoryCount = partsCategory.getVisibleCategoryCount();
+            logStep("Parts categories scheduled: " + categoryCount);
+
+            boolean foundPc80 = false;
+            int pc80Slot = -1;
+            for (int i = 1; i <= categoryCount; i++) {
+                String label = partsCategory.getCategoryLabel(i);
+                logStep("  PC slot " + i + ": " + label);
+                if (label != null && (label.toLowerCase().contains("engine clean")
+                        || label.toLowerCase().contains("cleaning kit"))) {
+                    foundPc80 = true;
+                    pc80Slot = i;
+                    logStep("Found PC 80 (Engine Clean Kit) at slot " + i);
+                }
+            }
+
+            // Also verify our AppConfig maps the label correctly
+            if (foundPc80) {
+                String resolvedCode = AppConfig.getPcCodeFromLabel("Engine Clean Kit");
+                Assert.assertEquals(resolvedCode, "80",
+                        "SIA-1219: AppConfig.getPcCodeFromLabel should map 'Engine Clean Kit' to PC 80");
+                logStep("AppConfig correctly maps Engine Clean Kit -> PC 80");
+
+                // Try entering the PC category
+                if (!partsCategory.isCategoryCompleted(pc80Slot)) {
+                    partsCategory.tapStart(pc80Slot);
+                    Thread.sleep(AppConfig.MEDIUM_WAIT);
+
+                    PartsMainPage partsMain = new PartsMainPage(driver, wait);
+                    Assert.assertTrue(partsMain.isDisplayed(),
+                            "SIA-1219: Should navigate to parts scan screen for PC 80");
+                    logStep("Successfully entered PC 80 scanning screen");
+
+                    // Navigate back
+                    driver.navigate().back();
+                    Thread.sleep(AppConfig.MEDIUM_WAIT);
+                    dismissAnyDialog();
+                }
+            } else {
+                // PC 80 not in this inventory — verify the mapping still works
+                String resolvedCode = AppConfig.getPcCodeFromLabel("Engine Clean Kit");
+                Assert.assertEquals(resolvedCode, "80",
+                        "SIA-1219: AppConfig.getPcCodeFromLabel should map 'Engine Clean Kit' to PC 80 " +
+                                "(PC 80 not scheduled in this inventory but mapping must exist)");
+                logStep("PC 80 not scheduled for this store, but AppConfig mapping verified");
+            }
+
+            pass();
+
+        } catch (Exception e) {
+            fail("SIA-1219 PC 80 test failed: " + e.getMessage(), e);
         } finally {
             teardown();
         }

@@ -9,6 +9,7 @@
     <!-- Schedules a fresh inventory run before executing tests -->
     <parameter name="TEST_STORE" value="30"/>
     <parameter name="SCHEDULE_IF_NEEDED" value="true"/>
+    <parameter name="DEVICE_UDID" value="23167524701232"/>
 
 
     <test name = "Suite Setup">
@@ -136,6 +137,22 @@
             </class>
         </classes>
     </test>
+
+    <test name="Scanner Reliability - Tire Inventory">
+        <parameter name="INVENTORY_PCS" value="2"/>
+        <classes>
+            <class name="com.mavis.scanner.functional.ScannerReliabilityTest">
+            </class>
+        </classes>
+
+    </test>
+
+    <test name="Battery Returns">
+        <classes>
+            <class name="com.mavis.scanner.functional.BatteryEndToEndTest"/>
+        </classes>
+    </test>
+
 
 
     <test name="Tire Invenotry With All Store Sections">

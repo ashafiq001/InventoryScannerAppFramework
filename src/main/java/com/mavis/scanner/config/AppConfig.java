@@ -8,8 +8,16 @@ public class AppConfig {
     // ==================== DEVICE & APPIUM ====================
     public static final String APPIUM_URL = "http://127.0.0.1:4723";
     public static final String DEVICE_UDID ="23167524701232";
+    public static final String Device_UDID2 = "24028524700126";
     public static final String PLATFORM_NAME = "Android";
     public static final String AUTOMATION_NAME = "UiAutomator2";
+    public static final String DEFAULT_DEVICE_UDID = "23167524701232";
+
+
+    public static String getDeviceUDID() {
+        String udid = System.getProperty("DEVICE_UDID");
+        return (udid != null && !udid.isEmpty()) ? udid : DEFAULT_DEVICE_UDID;
+    }
 
 
     //"24028524700126";
@@ -26,6 +34,7 @@ public class AppConfig {
     public static final String ACTIVITY_PARTS_PC = XAMARIN_CRC + ".PartsPCActivity";
     public static final String ACTIVITY_MAIN_PARTS = XAMARIN_CRC + ".MainActivityParts";
     public static final String ACTIVITY_BATTERY_RETURN = XAMARIN_CRC + ".BatteryReturnActivity";
+    public static final String ACTIVITY_BATTERY_RECEIVE = XAMARIN_CRC + ".BatteryReceiveActivity";
     public static final String ACTIVITY_BATTERY_LOGIN = XAMARIN_CRC + ".BatteryReturnsLogin";
     public static final String ACTIVITY_FINAL_CONFIRM = XAMARIN_CRC + ".FinalConfirmActivity";
 
@@ -34,6 +43,9 @@ public class AppConfig {
     public static final String DW_ACTION_PARTS = "com.darryncampbell.datawedge.xamarin.ACTIONPARTS";
     public static final String DW_ACTION_CATEGORIES = "com.darryncampbell.datawedge.xamarin.ACTIONCategories";
     public static final String DW_ACTION_BATTERY = "com.darryncampbell.datawedge.xamarin.ACTIONBATTERYRETURNS";
+    public static final String DW_ACTION_BATTERY_RETURNS = "com.darryncampbell.datawedge.xamarin.ACTIONBATTRETURNS";
+    public static final String DW_ACTION_BATTERY_RECEIVE = "com.darryncampbell.datawedge.xamarin.ACTIONBATTRECIEVE";
+
 
     // DataWedge intent extra keys
     public static final String DW_KEY_DATA = "com.symbol.datawedge.data_string";

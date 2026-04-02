@@ -17,6 +17,7 @@ import org.testng.ITestContext;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.BeforeTest;
+import com.mavis.scanner.utils.InventorySetupHelper;
 
 import java.io.File;
 import java.net.MalformedURLException;
@@ -55,6 +56,8 @@ public abstract class BaseTest {
     private static Process appiumProcess;
 
     private static String reportDir;
+    protected String activeInvNum;
+    protected String activeInvCode;
 
 
     @BeforeSuite(alwaysRun = true)
@@ -117,7 +120,7 @@ public abstract class BaseTest {
         extent.attachReporter(spark);
         extent.setSystemInfo("Platform", "Android");
         extent.setSystemInfo("App", AppConfig.APP_PACKAGE);
-        extent.setSystemInfo("Device", AppConfig.DEVICE_UDID);
+        extent.setSystemInfo("Device", AppConfig.getDeviceUDID());
         extent.setSystemInfo("Appium URL", AppConfig.APPIUM_URL);
 
         ExtentSparkReporter latest = new ExtentSparkReporter(reportDir + "/latest-report.html");
@@ -196,7 +199,7 @@ public abstract class BaseTest {
             UiAutomator2Options options = new UiAutomator2Options();
             options.setPlatformName(AppConfig.PLATFORM_NAME);
             options.setAutomationName(AppConfig.AUTOMATION_NAME);
-            options.setUdid(AppConfig.DEVICE_UDID);
+            options.setUdid(AppConfig.getDeviceUDID());
             options.setAppPackage(AppConfig.APP_PACKAGE);
             options.setAppActivity(AppConfig.APP_ACTIVITY);
             options.setNoReset(false);
@@ -234,7 +237,7 @@ public abstract class BaseTest {
             UiAutomator2Options options = new UiAutomator2Options();
             options.setPlatformName(AppConfig.PLATFORM_NAME);
             options.setAutomationName(AppConfig.AUTOMATION_NAME);
-            options.setUdid(AppConfig.DEVICE_UDID);
+            options.setUdid(AppConfig.getDeviceUDID());
             options.setAppPackage(AppConfig.APP_PACKAGE);
             options.setNoReset(true);
             options.setCapability("autoLaunch", false);
@@ -253,6 +256,11 @@ public abstract class BaseTest {
     }
 
     protected void teardown() {
+        if (activeInvNum != null || activeInvCode != null) {
+            InventorySetupHelper.deleteInventory(activeInvNum, activeInvCode);
+            activeInvNum = null;
+            activeInvCode = null;
+        }
         if (driver != null) {
             try {
                 driver.quit();
@@ -316,7 +324,6 @@ public abstract class BaseTest {
             e.printStackTrace(System.err);
         }
         captureScreenshot("FAIL_" + testName);
-
         if (e != null && extentTest != null) {
             extentTest.fail(e);
         }

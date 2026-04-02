@@ -71,6 +71,8 @@ public class WifiDuplicationTest extends BaseTest {
         try {
             // Step 0: Resolve inventory
             ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode=inv.invCode;
             logStep("Step 0: Resolved inventory: " + inv);
 
             if (!inv.scheduledPCs.isEmpty() && !inv.scheduledPCs.contains(2)) {
@@ -260,15 +262,102 @@ public class WifiDuplicationTest extends BaseTest {
             Thread.sleep(AppConfig.LONG_WAIT);
             dismissAnyDialog();
 
-            // Step 5: Verify — check UI counts and query DB for duplicate records
-            logStep("Step 5: Verifying upload counts (checking for duplication)...");
-
+            // If upload failed (e.g. wifi flaky), app may show Exit popup instead of FinalConfirm
             FinalConfirmPage confirmPage = new FinalConfirmPage(driver, wait);
-
             if (!confirmPage.isDisplayed()) {
                 Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
                 dismissAnyDialog();
             }
+
+            if (!confirmPage.isDisplayed()) {
+                logStep("FinalConfirm not reached — attempting recovery (Exit popup → restart → re-login)");
+
+                // Dismiss the "Exit" popup if present
+                By exitBtn = byTextIgnoreCase("EXIT");
+                try {
+                    WebElement exit = WaitHelper.waitForAny(driver, 10, exitBtn);
+                    logStep("Found Exit popup — dismissing");
+                    exit.click();
+                    Thread.sleep(AppConfig.MEDIUM_WAIT);
+                } catch (Exception ignored) {
+                    logStep("No Exit popup found");
+                }
+
+                // Ensure wifi is on
+                toggleWifi(true);
+                Thread.sleep(AppConfig.MEDIUM_WAIT);
+
+                // Restart the app and re-login with the same inventory
+                driver.terminateApp(AppConfig.APP_PACKAGE);
+                Thread.sleep(AppConfig.MEDIUM_WAIT);
+                driver.activateApp(AppConfig.APP_PACKAGE);
+                Thread.sleep(AppConfig.LONG_WAIT);
+
+                StartHomePage startHome2 = new StartHomePage(driver, wait);
+                LoginPage loginPage2 = startHome2.tapStartInventory();
+                Thread.sleep(AppConfig.SHORT_WAIT);
+                loginPage2.login(inv.store, AppConfig.TEST_EMPLOYEE, inv.invCode);
+                Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+                if (loginPage2.isDisplayed()) Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+                logStep("Re-logged in with store=" + inv.store + " invCode=" + inv.invCode);
+
+                // Dismiss "Exit" popup that appears after re-login
+                try {
+                    WebElement exit = WaitHelper.waitForAny(driver, 10, exitBtn);
+                    logStep("Found Exit popup after re-login — dismissing");
+                    exit.click();
+                    Thread.sleep(AppConfig.MEDIUM_WAIT);
+                } catch (Exception ignored) {
+                    logStep("No Exit popup after re-login");
+                }
+
+                // Retry Finish with wifi on
+                mainScan = new MainScanPage(driver, wait);
+                Assert.assertTrue(mainScan.isDisplayed(),
+                        "Scan screen should be displayed after re-login. Activity: " +
+                                driver.currentActivity());
+
+                scrollToBottom();
+                mainScan.tapFinish();
+                Thread.sleep(AppConfig.MEDIUM_WAIT);
+
+                // Handle close-with-0 / yes dialogs
+                By closeWith0Retry = byTextIgnoreCase("CLOSE WITH 0");
+                By yesRetry = byTextIgnoreCase("YES");
+                for (int r = 0; r < 200; r++) {
+                    try {
+                        WebElement found = WaitHelper.waitForAny(driver, 10,
+                                closeWith0Retry, yesRetry);
+                        String text = found.getText();
+                        if (text.equalsIgnoreCase("CLOSE WITH 0")) {
+                            found.click();
+                            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+                            scrollToBottom();
+                            mainScan.tapFinish();
+                            Thread.sleep(AppConfig.MEDIUM_WAIT);
+                        } else if (text.equalsIgnoreCase("YES")) {
+                            found.click();
+                            Thread.sleep(AppConfig.LONG_WAIT);
+                            break;
+                        }
+                    } catch (Exception e2) {
+                        break;
+                    }
+                }
+
+                handlePostFinishDialogs();
+                Thread.sleep(AppConfig.LONG_WAIT);
+                dismissAnyDialog();
+
+                if (!confirmPage.isDisplayed()) {
+                    Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+                    dismissAnyDialog();
+                    confirmPage = new FinalConfirmPage(driver, wait);
+                }
+            }
+
+            // Step 5: Verify — check UI counts and query DB for duplicate records
+            logStep("Step 5: Verifying upload counts (checking for duplication)...");
 
             Assert.assertTrue(confirmPage.isDisplayed(),
                     "FinalConfirmActivity never appeared — upload may have failed. " +
@@ -732,11 +821,11 @@ public class WifiDuplicationTest extends BaseTest {
      * Uses svc wifi (no root needed), with cmd connectivity fallback.
      */
     private void toggleWifi(boolean enable) {
-        String svcCmd = enable ? "svc wifi enable" : "svc wifi disable";
+        String action = enable ? "enable" : "disable";
         try {
             java.util.Map<String, Object> args = new java.util.HashMap<>();
-            args.put("command", "sh");
-            args.put("args", java.util.Arrays.asList("-c", svcCmd));
+            args.put("command", "svc");
+            args.put("args", java.util.Arrays.asList("wifi", action));
             driver.executeScript("mobile: shell", args);
             Thread.sleep(2000);
             logStep("WiFi " + (enable ? "ON" : "OFF"));
@@ -746,12 +835,10 @@ public class WifiDuplicationTest extends BaseTest {
         }
 
         try {
-            String airCmd = enable
-                    ? "cmd connectivity airplane-mode disable"
-                    : "cmd connectivity airplane-mode enable";
             java.util.Map<String, Object> args = new java.util.HashMap<>();
-            args.put("command", "sh");
-            args.put("args", java.util.Arrays.asList("-c", airCmd));
+            args.put("command", "cmd");
+            args.put("args", java.util.Arrays.asList("connectivity", "airplane-mode",
+                    enable ? "disable" : "enable"));
             driver.executeScript("mobile: shell", args);
             Thread.sleep(2000);
             logStep("WiFi " + (enable ? "ON" : "OFF") + " (via cmd connectivity)");
@@ -761,7 +848,8 @@ public class WifiDuplicationTest extends BaseTest {
         }
 
         try {
-            new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.DEVICE_UDID, "shell", svcCmd)
+            new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.getDeviceUDID(), "shell",
+                    "svc", "wifi", action)
                     .redirectErrorStream(true).start().waitFor();
             Thread.sleep(2000);
             logStep("WiFi " + (enable ? "ON" : "OFF") + " (via direct ADB)");

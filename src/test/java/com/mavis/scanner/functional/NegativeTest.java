@@ -70,6 +70,8 @@ public class NegativeTest extends BaseTest {
 
     private ScheduledInventory resolveTireInventory() {
         ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+        activeInvNum = inv.invNum;
+        activeInvCode = inv.invCode;
         logStep("Resolved inventory: " + inv);
         if (!inv.scheduledPCs.isEmpty() && !inv.scheduledPCs.contains(2)) {
             skip("No tire PC=2 in resolved inventory: " + inv.scheduledPCs);
@@ -79,6 +81,8 @@ public class NegativeTest extends BaseTest {
 
     private ScheduledInventory resolvePartsInventory() {
         ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+        activeInvNum = inv.invNum;
+        activeInvCode=inv.invCode;
         logStep("Resolved inventory: " + inv);
         if (!inv.scheduledPCs.isEmpty()) {
             boolean hasPartsPc = inv.scheduledPCs.stream().anyMatch(pc -> pc != 2);
@@ -276,15 +280,12 @@ public class NegativeTest extends BaseTest {
             String infoMsg = loginPage.getInfoMessage();
             logStep("Info message: " + infoMsg);
 
-            // Document behavior: does leading zero get parsed as different store?
-            String activity = driver.currentActivity();
-            logStep("Current activity: " + activity);
-
-            if (loginPage.isDisplayed()) {
-                logStep("RESULT: Stayed on login — leading zeros rejected or inv code invalid");
-            } else {
-                logStep("RESULT: Navigated past login — leading zeros were stripped/accepted");
-            }
+            // Leading zeros with invalid invCode=0000 should not pass login
+            Assert.assertTrue(loginPage.isDisplayed(),
+                    "LEADING ZEROS BUG: Login succeeded with invCode=0000. " +
+                            "Leading zeros may be causing incorrect store/code matching. " +
+                            "Activity: " + driver.currentActivity());
+            logStep("Login correctly rejected with leading zeros and invalid invCode");
 
             pass();
 
@@ -303,6 +304,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolveTireInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             MainScanPage mainScan = fullLoginToTireScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
 
@@ -341,6 +344,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolveTireInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             MainScanPage mainScan = fullLoginToTireScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
@@ -360,14 +365,12 @@ public class NegativeTest extends BaseTest {
             int afterCount = mainScan.getItemCount();
             logStep("Item count: " + initialCount + " -> " + afterCount);
 
-            // Document behavior: does the app allow scanning without a section?
-            if (afterCount == initialCount) {
-                logStep("RESULT: Item rejected — no section open (correct behavior)");
-            } else {
-                logStep("RESULT: Item accepted without section — potential bug");
-            }
-
             Assert.assertTrue(mainScan.isDisplayed(), "App should remain on scan screen");
+
+            Assert.assertEquals(afterCount, initialCount,
+                    "SCAN WITHOUT SECTION BUG: Item was accepted without an open section. " +
+                            "Count went from " + initialCount + " to " + afterCount);
+            logStep("Item correctly rejected — no section open");
 
             pass();
 
@@ -461,6 +464,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolveTireInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             MainScanPage mainScan = fullLoginToTireScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
@@ -526,6 +531,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolveTireInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             MainScanPage mainScan = fullLoginToTireScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
@@ -592,6 +599,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolveTireInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             MainScanPage mainScan = fullLoginToTireScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
@@ -648,6 +657,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolvePartsInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             PartsMainPage partsMain = fullLoginToPartsScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
 
@@ -684,6 +695,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolvePartsInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             PartsMainPage partsMain = fullLoginToPartsScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
@@ -704,13 +717,11 @@ public class NegativeTest extends BaseTest {
             int afterCount = partsMain.getItemCount();
             logStep("Item count: " + initialCount + " -> " + afterCount);
 
-            if (afterCount == initialCount) {
-                logStep("RESULT: Item rejected — no section open (correct behavior)");
-            } else {
-                logStep("RESULT: Item accepted without section — potential bug");
-            }
-
             Assert.assertTrue(partsMain.isDisplayed(), "App should remain on parts scan screen");
+
+            Assert.assertEquals(afterCount, initialCount,
+                    "PARTS SCAN WITHOUT SECTION BUG: Item was accepted without an open section. " +
+                            "Count went from " + initialCount + " to " + afterCount);
 
             pass();
 
@@ -727,6 +738,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolvePartsInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             PartsMainPage partsMain = fullLoginToPartsScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
@@ -801,6 +814,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolvePartsInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             PartsMainPage partsMain = fullLoginToPartsScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
@@ -866,6 +881,8 @@ public class NegativeTest extends BaseTest {
 
         try {
             ScheduledInventory inv = resolvePartsInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode = inv.invCode;
             PartsMainPage partsMain = fullLoginToPartsScan(inv);
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);

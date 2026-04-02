@@ -473,7 +473,7 @@ public class DatabaseHelper {
         String adbPath = AppConfig.ADB_PATH;
 
         ProcessBuilder pb = new ProcessBuilder(
-                adbPath, "-s", AppConfig.DEVICE_UDID, "shell", command
+                adbPath, "-s", AppConfig.getDeviceUDID(), "shell", command
         );
         pb.redirectErrorStream(true);
         Process process = pb.start();

@@ -490,6 +490,8 @@ public class SectionUploadVerificationTest extends BaseTest {
         try {
             // Step 0: Resolve inventory
             ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode=inv.invCode;
             logStep("Step 0: Resolved inventory: " + inv);
 
             if (!inv.scheduledPCs.isEmpty() && !inv.scheduledPCs.contains(2)) {
@@ -752,6 +754,8 @@ public class SectionUploadVerificationTest extends BaseTest {
         try {
             // Step 0: Resolve inventory
             ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+            activeInvNum = inv.invNum;
+            activeInvCode=inv.invCode;
             logStep("Step 0: Resolved inventory: " + inv);
 
             if (!inv.scheduledPCs.isEmpty()) {

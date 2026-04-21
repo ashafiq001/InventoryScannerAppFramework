@@ -261,6 +261,7 @@ public abstract class BaseTest {
             activeInvNum = null;
             activeInvCode = null;
         }
+        ensureAirplanceModeOff();
         if (driver != null) {
             try {
                 driver.quit();
@@ -270,6 +271,53 @@ public abstract class BaseTest {
             }
         }
         printSummary();
+    }
+
+    private void ensureAirplanceModeOff() {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                // Check current airplane mode state via ADB
+                ProcessBuilder checkPb = new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.getDeviceUDID(),
+                        "shell", "settings", "get", "global", "airplane_mode_on");
+                checkPb.redirectErrorStream(true);
+                Process checkProc = checkPb.start();
+                String output = new String(checkProc.getInputStream().readAllBytes()).trim();
+                checkProc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+
+                if ("0".equals(output)) {
+                    // Airplane mode is already off — nothing to do
+                    return;
+                }
+
+                System.out.println("[BaseTest] Airplane mode is ON (attempt " + attempt + "/3) — disabling...");
+
+                // Try via Appium driver first (if still alive)
+                if (driver != null) {
+                    try {
+                        java.util.Map<String, Object> args = new java.util.HashMap<>();
+                        args.put("command", "cmd");
+                        args.put("args", java.util.Arrays.asList("connectivity", "airplane-mode", "disable"));
+                        driver.executeScript("mobile: shell", args);
+                        Thread.sleep(2000);
+                        continue; // re-check on next iteration
+                    } catch (Exception ignored) {
+                        // Driver may be dead; fall through to direct ADB
+                    }
+                }
+
+                // Fallback: direct ADB
+                ProcessBuilder disablePb = new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.getDeviceUDID(),
+                        "shell", "cmd", "connectivity", "airplane-mode", "disable");
+                disablePb.redirectErrorStream(true);
+                Process disableProc = disablePb.start();
+                disableProc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+                Thread.sleep(2000);
+
+            } catch (Exception e) {
+                System.err.println("[BaseTest] ensureAirplaneModeOff attempt " + attempt + " failed: " + e.getMessage());
+            }
+        }
+        System.err.println("[BaseTest] WARNING: Could not confirm airplane mode is OFF after 3 attempts");
     }
 
     protected void logStep(String step) {

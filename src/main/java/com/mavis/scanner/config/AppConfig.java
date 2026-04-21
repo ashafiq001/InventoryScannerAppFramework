@@ -108,13 +108,15 @@ public class AppConfig {
     public static final String DB_TIREMAX = "TireMaxLive";
 
     // ==================== FALLBACK TEST UPC DATA ====================
-    // Known valid tire items from Mavis_Automation fallback data
+    // Known valid tire items from tires_upc (BarcodeMasterList dump)
     // Format: {itemNumber, upc}
     public static final String[][] FALLBACK_TIRE_DATA = {
-            {"000180", "2356518"},
-            {"000227", "2656518"},
-            {"000238", "2455517"},
-            {"000216", "2356018"}
+            {"000009", "092971246938"},
+            {"000016", "092971282820"},
+            {"000017", "092971282363"},
+            {"000018", "092971284893"},
+            {"000019", "092971279479"},
+            {"000020", "092971283629"}
     };
 
     // Known valid storage location barcodes

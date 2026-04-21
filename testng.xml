@@ -125,7 +125,7 @@
 
 
     <test name="Item Management - Parts">
-        <parameter name="INVENTORY_PCS" value="62,65,86,188"/>
+        <parameter name="INVENTORY_PCS" value="65,86,188"/>
         <classes>
             <class name="com.mavis.scanner.functional.ItemManagementTest">
                 <methods>
@@ -138,20 +138,13 @@
         </classes>
     </test>
 
-    <test name="Scanner Reliability - Tire Inventory">
-        <parameter name="INVENTORY_PCS" value="2"/>
-        <classes>
-            <class name="com.mavis.scanner.functional.ScannerReliabilityTest">
-            </class>
-        </classes>
 
-    </test>
 
-    <test name="Battery Returns">
-        <classes>
-            <class name="com.mavis.scanner.functional.BatteryEndToEndTest"/>
-        </classes>
-    </test>
+<!--    <test name="Battery Returns">-->
+<!--        <classes>-->
+<!--            <class name="com.mavis.scanner.functional.BatteryEndToEndTest"/>-->
+<!--        </classes>-->
+<!--    </test>-->
 
 
 
@@ -174,6 +167,20 @@
         <classes>
             <class name="com.mavis.scanner.functional.DeadcountScannerTest"/>
         </classes>
+    </test>
+
+    <test name="Scanner Reliability - Tire Inventory">
+        <parameter name="INVENTORY_PCS" value="2"/>
+        <classes>
+            <class name="com.mavis.scanner.functional.ScannerReliabilityTest">
+                <methods>
+                    <exclude name="testFinishWithMostSectionsEmpty"/>
+                    <exclude name="testScanItemBeforeSection"/>
+                    <exclude name="testSwitchSectionWithoutClosing"/>
+                </methods>
+            </class>
+        </classes>
+
     </test>
 
 

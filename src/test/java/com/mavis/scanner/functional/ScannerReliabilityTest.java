@@ -923,9 +923,9 @@ public class ScannerReliabilityTest extends BaseTest {
 
             pass();
         } catch (Exception e) {
-            try { toggleAirplaneMode(false); } catch (Exception ignored) {}
             fail("No wifi test failed: " + e.getMessage(), e);
         } finally {
+            try { toggleAirplaneMode(false); } catch (Exception ignored) {}
             teardown();
         }
     }
@@ -1034,9 +1034,9 @@ public class ScannerReliabilityTest extends BaseTest {
 
             pass();
         } catch (Exception e) {
-            try { toggleAirplaneMode(false); } catch (Exception ignored) {}
             fail("Offline scan then upload test failed: " + e.getMessage(), e);
         } finally {
+            try { toggleAirplaneMode(false); } catch (Exception ignored) {}
             teardown();
         }
     }
@@ -1084,9 +1084,9 @@ public class ScannerReliabilityTest extends BaseTest {
 
             pass();
         } catch (Exception e) {
-            try { toggleAirplaneMode(false); } catch (Exception ignored) {}
             fail("Wifi drop mid-scan test failed: " + e.getMessage(), e);
         } finally {
+            try { toggleAirplaneMode(false); } catch (Exception ignored) {}
             teardown();
         }
     }

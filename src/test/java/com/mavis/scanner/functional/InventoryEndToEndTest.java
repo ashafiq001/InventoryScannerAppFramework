@@ -40,11 +40,13 @@ public class InventoryEndToEndTest extends BaseTest {
 
     @Test(priority = 1, description = "E2E: Complete parts inventory flow across all scheduled PCs")
     public void testCompletePartsInventoryFlow() {
+        scheduledInventory = InventorySetupHelper.resolveInventory();
+        activeInvNum=scheduledInventory.invNum;
+        activeInvCode=scheduledInventory.invCode;
         setup("E2E - Complete Parts Inventory Flow");
 
         try {
             // ===== STEP 0: Resolve store + invCode from database =====
-            scheduledInventory = InventorySetupHelper.resolveInventory();
             String store = scheduledInventory.store;
             String invCode = scheduledInventory.invCode;
             logStep("Step 0: Resolved inventory: " + scheduledInventory);
@@ -88,16 +90,20 @@ public class InventoryEndToEndTest extends BaseTest {
 
     @Test(priority = 0, description = "E2E: Complete tire inventory flow from login to confirmation")
     public void testCompleteTireInventoryFlow() {
+        // Resolve inventory BEFORE driver init — spBuildInventory can take minutes
+        // and the Appium session would time out (newCommandTimeout=300s) waiting.
+        scheduledInventory = InventorySetupHelper.resolveInventory();
+        activeInvNum = scheduledInventory.invNum;
+        activeInvCode = scheduledInventory.invCode;
+        logStep("Step 0: Resolved inventory: " + scheduledInventory);
+
         setup("E2E - Complete Tire Inventory Flow");
 
         try {
             DataWedgeHelper dwHelper;
 
-            // ===== STEP 0: Resolve store + invCode from database =====
-            scheduledInventory = InventorySetupHelper.resolveInventory();
             String store = scheduledInventory.store;
             String invCode = scheduledInventory.invCode;
-            logStep("Step 0: Resolved inventory: " + scheduledInventory);
 
             // ===== STEP 1: Launch and navigate to Login =====
             StartHomePage startHome = new StartHomePage(driver, wait);
@@ -188,7 +194,7 @@ public class InventoryEndToEndTest extends BaseTest {
                         item.get("item_num") + " UPC=" + upc);
                 dwHelper.scanItemBarcode(upc);
                 Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-                dismissAnyDialog();
+                handlePostScanDialog();
                 scannedCount++;
             } catch (Exception e) {
                 logStep("Step 5: Scan failed for UPC " + upc + ": " + e.getMessage());

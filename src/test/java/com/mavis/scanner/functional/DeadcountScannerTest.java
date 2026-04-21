@@ -89,13 +89,15 @@ public class DeadcountScannerTest {
         UiAutomator2Options options = new UiAutomator2Options();
         options.setPlatformName(AppConfig.PLATFORM_NAME);
         options.setAutomationName(AppConfig.AUTOMATION_NAME);
-        options.setUdid(AppConfig.DEVICE_UDID);
+        options.setUdid(AppConfig.getDeviceUDID());
         options.setAppPackage(DeadcountConfig.APP_PACKAGE);
         options.setAppActivity(DeadcountConfig.APP_ACTIVITY);
         options.setNoReset(false);
         options.setFullReset(false);
         options.setNewCommandTimeout(Duration.ofSeconds(300));
         options.setCapability("autoGrantPermissions", true);
+        options.setCapability("skipDeviceInitialization", true);
+        options.setCapability("skipServerInstallation", true);
 
         driver = new AndroidDriver(new URL(AppConfig.APPIUM_URL), options);
         wait = new WebDriverWait(driver, Duration.ofSeconds(AppConfig.DEFAULT_TIMEOUT));
@@ -166,6 +168,20 @@ public class DeadcountScannerTest {
             // Scan a section
             scanSection("STR-1002");
 
+            // Wait for count dialog or an intermediate dialog (e.g. duplicate warning)
+            try {
+                WaitHelper.waitForAny(driver, AppConfig.DEFAULT_TIMEOUT,
+                        TXT_COUNT, DIALOG_POSITIVE);
+            } catch (Exception e) {
+                // timeout — neither appeared
+            }
+
+            // If a non-count dialog appeared first, dismiss it and wait for count dialog
+            if (!isCountDialogDisplayed() && WaitHelper.isElementPresent(driver, DIALOG_POSITIVE)) {
+                driver.findElement(DIALOG_POSITIVE).click();
+                Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            }
+
             // Count dialog should appear
             Assert.assertTrue(waitForCountDialog(),
                     "DEADCOUNT BUG: Count dialog did not appear after scanning section");
@@ -225,6 +241,21 @@ public class DeadcountScannerTest {
             login();
 
             scanSection("STR-1002");
+
+            // Wait for count dialog or an intermediate dialog (e.g. duplicate warning)
+            try {
+                WaitHelper.waitForAny(driver, AppConfig.DEFAULT_TIMEOUT,
+                        TXT_COUNT, DIALOG_POSITIVE);
+            } catch (Exception e) {
+                // timeout — neither appeared
+            }
+
+            // If a non-count dialog appeared first, dismiss it and wait for count dialog
+            if (!isCountDialogDisplayed() && WaitHelper.isElementPresent(driver, DIALOG_POSITIVE)) {
+                driver.findElement(DIALOG_POSITIVE).click();
+                Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            }
+
             Assert.assertTrue(waitForCountDialog(), "Count dialog should appear");
 
             // Enter 251 (over max)
@@ -665,7 +696,7 @@ public class DeadcountScannerTest {
         } catch (Exception e) {
             // Fallback to direct ADB
             try {
-                new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.DEVICE_UDID, "shell", command)
+                new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.getDeviceUDID(), "shell", command)
                         .redirectErrorStream(true).start().waitFor();
             } catch (Exception ex) {
                 System.err.println("Failed to scan section: " + ex.getMessage());

@@ -3,7 +3,6 @@ package com.mavis.scanner.utils;
 import com.mavis.scanner.config.AppConfig;
 import io.appium.java_client.android.AndroidDriver;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -69,6 +68,21 @@ public class DataWedgeHelper {
     }
 
     /**
+     * Simulate a battery receive barcode scan.
+     */
+    public void scanBatteryReceiveBarcode(String upcCode) {
+        simulateScan(upcCode, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_BATTERY_RECEIVE);
+    }
+
+    /**
+     * Simulate a battery return barcode scan.
+     */
+    public void scanBatteryReturnBarcode(String upcCode) {
+        simulateScan(upcCode, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_BATTERY_RETURNS);
+    }
+
+
+    /**
      * Simulate a parts category barcode scan.
      */
     public void scanCategoryBarcode(String barcode) {
@@ -95,8 +109,33 @@ public class DataWedgeHelper {
             return AppConfig.ACTIVITY_PARTS_PC;
         } else if (intentAction.equals(AppConfig.DW_ACTION_BATTERY)) {
             return AppConfig.ACTIVITY_BATTERY_RETURN;
+        }else if (intentAction.equals(AppConfig.DW_ACTION_BATTERY_RETURNS)) {
+            return AppConfig.ACTIVITY_BATTERY_RETURN;
+        } else if (intentAction.equals(AppConfig.DW_ACTION_BATTERY_RECEIVE)) {
+            return AppConfig.ACTIVITY_BATTERY_RECEIVE;
         }
         return "";
+    }
+
+    /**
+     * Splits an "am start ..." command string into individual arguments,
+     * stripping the leading "am" (since we pass "am" as the command directly).
+     * Handles quoted strings so extras like "STR-1002" stay as single args.
+     */
+    private java.util.List<String> buildAmArgs(String command) {
+        java.util.List<String> args = new java.util.ArrayList<>();
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile(
+                "\"([^\"]*)\"|'([^']*)'|(\\S+)").matcher(command);
+        while (m.find()) {
+            if (m.group(1) != null) args.add(m.group(1));
+            else if (m.group(2) != null) args.add(m.group(2));
+            else args.add(m.group(3));
+        }
+        // Remove leading "am" since it's now the command itself
+        if (!args.isEmpty() && args.get(0).equals("am")) {
+            args.remove(0);
+        }
+        return args;
     }
 
     /**
@@ -108,8 +147,8 @@ public class DataWedgeHelper {
         try {
             // Primary: use Appium's mobile:shell (fast, in-process)
             Map<String, Object> args = new HashMap<>();
-            args.put("command", "sh");
-            args.put("args", Arrays.asList("-c", command));
+            args.put("command", "am");
+            args.put("args", buildAmArgs(command));
             driver.executeScript("mobile: shell", args);
         } catch (Exception e) {
             if (e.getMessage() != null && e.getMessage().contains("adb_shell")) {
@@ -130,7 +169,7 @@ public class DataWedgeHelper {
             String adbPath = AppConfig.ADB_PATH;
 
             ProcessBuilder pb = new ProcessBuilder(
-                    adbPath, "-s", AppConfig.DEVICE_UDID, "shell", command
+                    adbPath, "-s", AppConfig.getDeviceUDID(), "shell", command
             );
             pb.redirectErrorStream(true);
             Process process = pb.start();

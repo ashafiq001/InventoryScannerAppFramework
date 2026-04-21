@@ -41,6 +41,7 @@ public class ScanHelper {
     private int sectionScanCount = 0;
     private boolean sectionOpen = false;
     private String currentSection = null;
+    private int batteryReturnScanCount = 0;
 
     public ScanHelper(AndroidDriver driver, WebDriverWait wait) {
         this.driver = driver;
@@ -61,6 +62,10 @@ public class ScanHelper {
         } else {
             scanItem(barcode);
         }
+    }
+
+    public void scanBattery(String barcode) throws InterruptedException {
+        scanItem(barcode);
     }
 
     /**
@@ -125,6 +130,36 @@ public class ScanHelper {
     public int getSectionScanCount() {
         return sectionScanCount;
     }
+
+
+    /**
+     * Scan a battery barcode for the returns flow.
+     */
+    public void scanBatteryReturn(String upc) throws InterruptedException {
+        dwHelper.scanBatteryReturnBarcode(upc);
+        Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+        batteryReturnScanCount++;
+    }
+
+    /**
+     * Scan a battery barcode for the returns flow multiple times.
+     */
+    public void scanBatteryReturn(String upc, int times) throws InterruptedException {
+        for (int i = 0; i < times; i++) {
+            scanBatteryReturn(upc);
+        }
+    }
+
+    /** Number of battery return scans since last reset. */
+    public int getBatteryReturnScanCount() {
+        return batteryReturnScanCount;
+    }
+
+    /** Reset the battery return scan counter. */
+    public void resetBatteryReturnCount() {
+        batteryReturnScanCount = 0;
+    }
+
 
     // ==================== INTERNAL ====================
 

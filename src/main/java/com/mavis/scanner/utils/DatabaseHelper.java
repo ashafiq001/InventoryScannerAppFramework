@@ -4,7 +4,6 @@ import com.mavis.scanner.config.AppConfig;
 import io.appium.java_client.android.AndroidDriver;
 
 import java.io.*;
-import java.nio.file.*;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;
@@ -473,7 +472,7 @@ public class DatabaseHelper {
         String adbPath = AppConfig.ADB_PATH;
 
         ProcessBuilder pb = new ProcessBuilder(
-                adbPath, "-s", AppConfig.DEVICE_UDID, "shell", command
+                adbPath, "-s", AppConfig.getDeviceUDID(), "shell", command
         );
         pb.redirectErrorStream(true);
         Process process = pb.start();

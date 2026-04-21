@@ -49,6 +49,8 @@ public class ItemManagementTest extends BaseTest {
 
     private ScheduledInventory resolveTireInventory() {
         ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+        activeInvNum = inv.invNum;
+        activeInvCode = inv.invCode;
         logStep("Resolved inventory: " + inv);
         if (!inv.scheduledPCs.isEmpty() && !inv.scheduledPCs.contains(2)) {
             skip("Resolved inventory has PCs " + inv.scheduledPCs +
@@ -93,6 +95,8 @@ public class ItemManagementTest extends BaseTest {
 
     private ScheduledInventory resolvePartsInventory() {
         ScheduledInventory inv = InventorySetupHelper.resolveInventory();
+        activeInvNum = inv.invNum;
+        activeInvCode = inv.invCode;
         logStep("Resolved inventory: " + inv);
         if (!inv.scheduledPCs.isEmpty() && inv.scheduledPCs.size() == 1 && inv.scheduledPCs.contains(2)) {
             skip("Resolved inventory is tire-only (PC=2). Schedule a parts inventory.");

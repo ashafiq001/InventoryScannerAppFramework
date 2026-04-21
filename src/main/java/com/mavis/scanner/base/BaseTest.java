@@ -6,7 +6,6 @@ import com.aventstack.extentreports.MediaEntityBuilder;
 import com.aventstack.extentreports.reporter.ExtentSparkReporter;
 import com.aventstack.extentreports.reporter.configuration.Theme;
 import com.mavis.scanner.config.AppConfig;
-import com.mavis.scanner.utils.EmailHelper;
 import io.appium.java_client.android.AndroidDriver;
 import io.appium.java_client.android.options.UiAutomator2Options;
 import org.openqa.selenium.OutputType;
@@ -17,6 +16,7 @@ import org.testng.ITestContext;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.BeforeTest;
+import com.mavis.scanner.utils.InventorySetupHelper;
 
 import java.io.File;
 import java.net.MalformedURLException;
@@ -55,14 +55,16 @@ public abstract class BaseTest {
     private static Process appiumProcess;
 
     private static String reportDir;
+    protected String activeInvNum;
+    protected String activeInvCode;
 
 
     @BeforeSuite(alwaysRun = true)
     public void startAppiumServer() throws Exception {
         System.out.println("[BaseTest] Starting Appium server...");
 
-        ProcessBuilder pb = new ProcessBuilder("C:\\Users\\ashafiq\\AppData\\Roaming\\npm\\appium.cmd",
-                "--address", "127.0.0.1", "--port", "4723","--allow-insecure", "adb_shell");
+        ProcessBuilder pb = new ProcessBuilder("/C:\\Users\\ashafiq\\AppData\\Roaming\\npm\\appium.cmd",
+                "--address", "127.0.0.1", "--port", "4723","--allow-insecure", "*:adb_shell");
         pb.redirectErrorStream(true);
         // Send output to a log file so it doesn't flood the console
         pb.redirectOutput(new File("test-reports/appium-server.log"));
@@ -117,7 +119,7 @@ public abstract class BaseTest {
         extent.attachReporter(spark);
         extent.setSystemInfo("Platform", "Android");
         extent.setSystemInfo("App", AppConfig.APP_PACKAGE);
-        extent.setSystemInfo("Device", AppConfig.DEVICE_UDID);
+        extent.setSystemInfo("Device", AppConfig.getDeviceUDID());
         extent.setSystemInfo("Appium URL", AppConfig.APPIUM_URL);
 
         ExtentSparkReporter latest = new ExtentSparkReporter(reportDir + "/latest-report.html");
@@ -196,15 +198,15 @@ public abstract class BaseTest {
             UiAutomator2Options options = new UiAutomator2Options();
             options.setPlatformName(AppConfig.PLATFORM_NAME);
             options.setAutomationName(AppConfig.AUTOMATION_NAME);
-            options.setUdid(AppConfig.DEVICE_UDID);
+            options.setUdid(AppConfig.getDeviceUDID());
             options.setAppPackage(AppConfig.APP_PACKAGE);
             options.setAppActivity(AppConfig.APP_ACTIVITY);
             options.setNoReset(false);
             options.setFullReset(false);
             options.setNewCommandTimeout(Duration.ofSeconds(300));
             options.setCapability("autoGrantPermissions", true);
-            options.setCapability("skipDeviceInitialization", false);
-            options.setCapability("skipServerInstallation", false);
+            options.setCapability("skipDeviceInitialization", true);
+            options.setCapability("skipServerInstallation", true);
 
             driver = new AndroidDriver(new URL(AppConfig.APPIUM_URL), options);
             wait = new WebDriverWait(driver, Duration.ofSeconds(AppConfig.DEFAULT_TIMEOUT));
@@ -234,7 +236,7 @@ public abstract class BaseTest {
             UiAutomator2Options options = new UiAutomator2Options();
             options.setPlatformName(AppConfig.PLATFORM_NAME);
             options.setAutomationName(AppConfig.AUTOMATION_NAME);
-            options.setUdid(AppConfig.DEVICE_UDID);
+            options.setUdid(AppConfig.getDeviceUDID());
             options.setAppPackage(AppConfig.APP_PACKAGE);
             options.setNoReset(true);
             options.setCapability("autoLaunch", false);
@@ -253,6 +255,12 @@ public abstract class BaseTest {
     }
 
     protected void teardown() {
+        if (activeInvNum != null || activeInvCode != null) {
+            InventorySetupHelper.deleteInventory(activeInvNum, activeInvCode);
+            activeInvNum = null;
+            activeInvCode = null;
+        }
+        ensureAirplanceModeOff();
         if (driver != null) {
             try {
                 driver.quit();
@@ -262,6 +270,53 @@ public abstract class BaseTest {
             }
         }
         printSummary();
+    }
+
+    private void ensureAirplanceModeOff() {
+        for (int attempt = 1; attempt <= 3; attempt++) {
+            try {
+                // Check current airplane mode state via ADB
+                ProcessBuilder checkPb = new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.getDeviceUDID(),
+                        "shell", "settings", "get", "global", "airplane_mode_on");
+                checkPb.redirectErrorStream(true);
+                Process checkProc = checkPb.start();
+                String output = new String(checkProc.getInputStream().readAllBytes()).trim();
+                checkProc.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+
+                if ("0".equals(output)) {
+                    // Airplane mode is already off — nothing to do
+                    return;
+                }
+
+                System.out.println("[BaseTest] Airplane mode is ON (attempt " + attempt + "/3) — disabling...");
+
+                // Try via Appium driver first (if still alive)
+                if (driver != null) {
+                    try {
+                        java.util.Map<String, Object> args = new java.util.HashMap<>();
+                        args.put("command", "cmd");
+                        args.put("args", java.util.Arrays.asList("connectivity", "airplane-mode", "disable"));
+                        driver.executeScript("mobile: shell", args);
+                        Thread.sleep(2000);
+                        continue; // re-check on next iteration
+                    } catch (Exception ignored) {
+                        // Driver may be dead; fall through to direct ADB
+                    }
+                }
+
+                // Fallback: direct ADB
+                ProcessBuilder disablePb = new ProcessBuilder(AppConfig.ADB_PATH, "-s", AppConfig.getDeviceUDID(),
+                        "shell", "cmd", "connectivity", "airplane-mode", "disable");
+                disablePb.redirectErrorStream(true);
+                Process disableProc = disablePb.start();
+                disableProc.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+                Thread.sleep(2000);
+
+            } catch (Exception e) {
+                System.err.println("[BaseTest] ensureAirplaneModeOff attempt " + attempt + " failed: " + e.getMessage());
+            }
+        }
+        System.err.println("[BaseTest] WARNING: Could not confirm airplane mode is OFF after 3 attempts");
     }
 
     protected void logStep(String step) {
@@ -316,7 +371,6 @@ public abstract class BaseTest {
             e.printStackTrace(System.err);
         }
         captureScreenshot("FAIL_" + testName);
-
         if (e != null && extentTest != null) {
             extentTest.fail(e);
         }

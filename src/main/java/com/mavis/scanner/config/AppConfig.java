@@ -8,8 +8,16 @@ public class AppConfig {
     // ==================== DEVICE & APPIUM ====================
     public static final String APPIUM_URL = "http://127.0.0.1:4723";
     public static final String DEVICE_UDID ="23167524701232";
+    public static final String Device_UDID2 = "24028524700126";
     public static final String PLATFORM_NAME = "Android";
     public static final String AUTOMATION_NAME = "UiAutomator2";
+    public static final String DEFAULT_DEVICE_UDID = "23167524701232";
+
+
+    public static String getDeviceUDID() {
+        String udid = System.getProperty("DEVICE_UDID");
+        return (udid != null && !udid.isEmpty()) ? udid : DEFAULT_DEVICE_UDID;
+    }
 
 
     //"24028524700126";
@@ -26,6 +34,7 @@ public class AppConfig {
     public static final String ACTIVITY_PARTS_PC = XAMARIN_CRC + ".PartsPCActivity";
     public static final String ACTIVITY_MAIN_PARTS = XAMARIN_CRC + ".MainActivityParts";
     public static final String ACTIVITY_BATTERY_RETURN = XAMARIN_CRC + ".BatteryReturnActivity";
+    public static final String ACTIVITY_BATTERY_RECEIVE = XAMARIN_CRC + ".BatteryReceiveActivity";
     public static final String ACTIVITY_BATTERY_LOGIN = XAMARIN_CRC + ".BatteryReturnsLogin";
     public static final String ACTIVITY_FINAL_CONFIRM = XAMARIN_CRC + ".FinalConfirmActivity";
 
@@ -34,6 +43,9 @@ public class AppConfig {
     public static final String DW_ACTION_PARTS = "com.darryncampbell.datawedge.xamarin.ACTIONPARTS";
     public static final String DW_ACTION_CATEGORIES = "com.darryncampbell.datawedge.xamarin.ACTIONCategories";
     public static final String DW_ACTION_BATTERY = "com.darryncampbell.datawedge.xamarin.ACTIONBATTERYRETURNS";
+    public static final String DW_ACTION_BATTERY_RETURNS = "com.darryncampbell.datawedge.xamarin.ACTIONBATTRETURNS";
+    public static final String DW_ACTION_BATTERY_RECEIVE = "com.darryncampbell.datawedge.xamarin.ACTIONBATTRECIEVE";
+
 
     // DataWedge intent extra keys
     public static final String DW_KEY_DATA = "com.symbol.datawedge.data_string";
@@ -41,7 +53,7 @@ public class AppConfig {
     public static final String DW_KEY_SOURCE = "com.symbol.datawedge.source";
 
     // ==================== TEST CREDENTIALS ====================
-    public static final String TEST_STORE = "30";
+    public static final String TEST_STORE = "2030";
     public static final String TEST_EMPLOYEE = "421628";
     public static final String TEST_INV_CODE = "63727"; // Override per environment
 
@@ -96,13 +108,15 @@ public class AppConfig {
     public static final String DB_TIREMAX = "TireMaxLive";
 
     // ==================== FALLBACK TEST UPC DATA ====================
-    // Known valid tire items from Mavis_Automation fallback data
+    // Known valid tire items from tires_upc (BarcodeMasterList dump)
     // Format: {itemNumber, upc}
     public static final String[][] FALLBACK_TIRE_DATA = {
-            {"000180", "2356518"},
-            {"000227", "2656518"},
-            {"000238", "2455517"},
-            {"000216", "2356018"}
+            {"000009", "092971246938"},
+            {"000016", "092971282820"},
+            {"000017", "092971282363"},
+            {"000018", "092971284893"},
+            {"000019", "092971279479"},
+            {"000020", "092971283629"}
     };
 
     // Known valid storage location barcodes

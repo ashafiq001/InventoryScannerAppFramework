@@ -66,14 +66,14 @@ public class InventorySetupHelper {
                 " scheduleIfNeeded=" + scheduleIfNeeded + " PCs=" + pcsToSchedule);
 
         // Step 1: Look for existing "Not Started" inventory
-        ScheduledInventory inv = findNotStartedInventory(targetStore);
+        ScheduledInventory inv = findNotStartedInventory(targetStore,pcsToSchedule);
         if (inv != null) {
             System.out.println("[InventorySetupHelper] Found existing inventory: " + inv);
             return inv;
         }
 
         // Step 2: Try any store if specific store had nothing
-        inv = findNotStartedInventory(null);
+        inv = findNotStartedInventory(null,pcsToSchedule);
         if (inv != null) {
             System.out.println("[InventorySetupHelper] Found inventory on different store: " + inv);
             return inv;
@@ -84,7 +84,7 @@ public class InventorySetupHelper {
             System.out.println("[InventorySetupHelper] No 'Not Started' inventory found. Scheduling...");
             boolean scheduled = scheduleInventoryForStore(targetStore, pcsToSchedule);
             if (scheduled) {
-                inv = findNotStartedInventory(targetStore);
+                inv = findNotStartedInventory(targetStore,pcsToSchedule);
                 if (inv != null) {
                     System.out.println("[InventorySetupHelper] Scheduled and found: " + inv);
                     return inv;
@@ -107,9 +107,10 @@ public class InventorySetupHelper {
      * Groups PCs by store+invNum+invCode (same as ConcurrentScheduleThenCountTest.findStoresWithNotStartedInventory).
      *
      * @param store specific store number, or null for any available store
+     * @param requiredPCs
      * @return ScheduledInventory or null if none found
      */
-    public static ScheduledInventory findNotStartedInventory(String store) {
+    public static ScheduledInventory findNotStartedInventory(String store,List<Integer> requiredPCs) {
         String storeClause = (store != null) ? "AND h.store = " + store + " " : "";
 
         String sql = "SELECT h.store, h.InvNum, h.InvCode, h.pc " +
@@ -151,6 +152,10 @@ public class InventorySetupHelper {
         // Return the first match (most PCs = better for testing)
         ScheduledInventory best = null;
         for (ScheduledInventory inv : grouped.values()) {
+            if (requiredPCs != null && !requiredPCs.isEmpty()
+                    && !inv.scheduledPCs.containsAll(requiredPCs)) {
+                continue; // skip — this inventory doesn't cover the PCs we need
+            }
             if (best == null || inv.scheduledPCs.size() > best.scheduledPCs.size()) {
                 best = inv;
             }
@@ -322,6 +327,50 @@ public class InventorySetupHelper {
             }
         }
         return pcs.isEmpty() ? new ArrayList<>(ALL_PCS) : pcs;
+    }
+
+    /**
+     *
+     * @param invNum
+     * @param invCode
+     */
+    public static void deleteInventory(String invNum, String invCode){
+        if ((invNum == null || invNum.isEmpty()) && (invCode == null || invCode.isEmpty())) {
+            System.out.println("[InventorySetupHelper] No invNum/invCode to clean up");
+            return;
+        }
+
+        System.out.println("[InventorySetupHelper] Cleaning up inventory InvNum=" + invNum + " InvCode=" + invCode);
+
+        try (Connection conn = getConnection()) {
+            conn.setAutoCommit(false);
+
+            // Delete from inv_hdr first (child — FK references inv_hdr_group.GroupID)
+            if (invCode != null && !invCode.isEmpty()) {
+                String deleteHdr = "DELETE FROM InventoryScanning.inv.inv_hdr WHERE GroupID = ?";
+                try (PreparedStatement ps = conn.prepareStatement(deleteHdr)) {
+                    ps.setInt(1, Integer.parseInt(invCode));
+                    int rows = ps.executeUpdate();
+                    System.out.println("[InventorySetupHelper] Deleted " + rows + " rows from inv_hdr");
+                }
+            }
+
+            // Delete from inv_hdr_group (parent — inv_num = invNum)
+            if (invNum != null && !invNum.isEmpty()) {
+                String deleteGroup = "DELETE FROM InventoryScanning.inv.inv_hdr_group WHERE inv_num = ?";
+                try (PreparedStatement ps = conn.prepareStatement(deleteGroup)) {
+                    ps.setInt(1, Integer.parseInt(invNum));
+                    int rows = ps.executeUpdate();
+                    System.out.println("[InventorySetupHelper] Deleted " + rows + " rows from inv_hdr_group");
+                }
+            }
+
+            conn.commit();
+            System.out.println("[InventorySetupHelper] Cleanup complete for InvNum=" + invNum + " InvCode=" + invCode);
+        } catch (Exception e) {
+            System.err.println("[InventorySetupHelper] Cleanup failed: " + e.getMessage());
+        }
+
     }
 
     private static Connection getConnection() throws Exception {

@@ -4,6 +4,7 @@ import com.mavis.scanner.base.BaseTest;
 import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.pages.*;
 import com.mavis.scanner.pages.dialogs.ManualCountDialog;
+import com.mavis.scanner.utils.DatabaseHelper;
 import com.mavis.scanner.utils.DataWedgeHelper;
 import com.mavis.scanner.utils.InventorySetupHelper;
 import com.mavis.scanner.utils.InventorySetupHelper.ScheduledInventory;
@@ -12,6 +13,8 @@ import com.mavis.scanner.utils.WaitHelper;
 import org.openqa.selenium.By;
 import org.testng.Assert;
 import org.testng.annotations.Test;
+
+import java.util.List;
 
 /**
  * Scanner Reliability Tests.
@@ -31,6 +34,11 @@ public class ScannerReliabilityTest extends BaseTest {
 
     private static final By DIALOG_BUTTON_POSITIVE = By.id("android:id/button1");
     private static final By DIALOG_BUTTON_NEUTRAL = By.id("android:id/button3");
+
+    // Dynamic test data — populated per test from DB
+    private ScheduledInventory currentInv;
+    private List<String> testUpcs;
+    private List<String> testSections;
 
     // ==================== RAPID SCANNING ====================
 

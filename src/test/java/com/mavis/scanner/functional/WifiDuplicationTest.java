@@ -7,7 +7,6 @@ import com.mavis.scanner.pages.dialogs.ManualCountDialog;
 import com.mavis.scanner.utils.DataWedgeHelper;
 import com.mavis.scanner.utils.InventorySetupHelper;
 import com.mavis.scanner.utils.InventorySetupHelper.ScheduledInventory;
-import com.mavis.scanner.utils.ScanHelper;
 import com.mavis.scanner.utils.WaitHelper;
 import org.openqa.selenium.By;
 import org.openqa.selenium.Dimension;

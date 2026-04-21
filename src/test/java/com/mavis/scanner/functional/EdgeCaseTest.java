@@ -5,7 +5,6 @@ import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.pages.*;
 import com.mavis.scanner.pages.dialogs.BoxedOilDialog;
 import com.mavis.scanner.pages.dialogs.ManualCountDialog;
-import com.mavis.scanner.pages.dialogs.MultiItemDialog;
 import com.mavis.scanner.utils.DatabaseHelper;
 import com.mavis.scanner.utils.DataWedgeHelper;
 import com.mavis.scanner.utils.InventorySetupHelper;

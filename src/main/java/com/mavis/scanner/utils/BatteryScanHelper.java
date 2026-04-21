@@ -1,8 +1,6 @@
 package com.mavis.scanner.utils;
 
 import com.mavis.scanner.config.AppConfig;
-import com.mavis.scanner.pages.BatteryReceivePage;
-import com.mavis.scanner.pages.BatteryReturnPage;
 import io.appium.java_client.android.AndroidDriver;
 import org.openqa.selenium.support.ui.WebDriverWait;
 

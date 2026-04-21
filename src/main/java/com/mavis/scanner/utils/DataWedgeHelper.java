@@ -3,7 +3,6 @@ package com.mavis.scanner.utils;
 import com.mavis.scanner.config.AppConfig;
 import io.appium.java_client.android.AndroidDriver;
 
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 

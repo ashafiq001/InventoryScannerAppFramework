@@ -3,7 +3,6 @@ package com.mavis.scanner.functional;
 import com.mavis.scanner.base.BaseTest;
 import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.pages.*;
-import com.mavis.scanner.pages.dialogs.AddItemDialog;
 import com.mavis.scanner.pages.dialogs.ManualCountDialog;
 import com.mavis.scanner.utils.DatabaseHelper;
 import com.mavis.scanner.utils.DataWedgeHelper;

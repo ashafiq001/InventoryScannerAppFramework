@@ -1,6 +1,5 @@
 package com.mavis.scanner.pages;
 
-import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.utils.WaitHelper;
 import io.appium.java_client.android.AndroidDriver;
 import org.openqa.selenium.By;

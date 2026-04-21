@@ -4,7 +4,6 @@ import com.mavis.scanner.config.AppConfig;
 import io.appium.java_client.android.AndroidDriver;
 
 import java.io.*;
-import java.nio.file.*;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.ResultSet;

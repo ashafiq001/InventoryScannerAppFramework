@@ -5,7 +5,6 @@ import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.pages.*;
 import com.mavis.scanner.utils.BatteryScanHelper;
 import com.mavis.scanner.utils.DatabaseHelper;
-import com.mavis.scanner.utils.WaitHelper;
 import org.testng.Assert;
 import org.testng.annotations.AfterMethod;
 import org.testng.annotations.BeforeMethod;

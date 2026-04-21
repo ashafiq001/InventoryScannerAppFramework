@@ -2,7 +2,6 @@ package com.mavis.scanner.config;
 
 import com.mavis.scanner.utils.EmailHelper;
 import org.testng.ITestContext;
-import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.BeforeTest;
 
 public class SuiteConfig {

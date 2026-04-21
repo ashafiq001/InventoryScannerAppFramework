@@ -3,7 +3,6 @@ package com.mavis.scanner.pages;
 import com.mavis.scanner.utils.WaitHelper;
 import io.appium.java_client.android.AndroidDriver;
 import org.openqa.selenium.By;
-import org.openqa.selenium.WebElement;
 import org.openqa.selenium.support.ui.WebDriverWait;
 
 /**

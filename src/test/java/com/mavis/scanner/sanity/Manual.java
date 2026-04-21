@@ -11,29 +11,29 @@ public class Manual extends BaseTest {
         ScanHelper scan = new ScanHelper(driver,wait);
 
 
-        scan.scan("STR-1000");
-        scan.scan("848983021311");
-        //scan.scan("008536668664");
-       //scan.scan("092971283155",2);
+//        scan.scan("STR-1002");
+//        scan.scan("092971282523",2);
+//        scan.scan("092971283155",2);
+//
+//
+//        scan.closeSection();
 
-//       scan.closeSection();
 
-       // scan.scanBattery("017724660915");
-        //scan.scan("STR-1003");
-       //scan.scan("017724660915");
-        //scan.scan("017724684218");
-        //scan.scan("017724660717");
+        scan.scan("STR-5008");
+        //scan.scan("8936096303782",1);
+        //scan.scan("71545961251",1);
+        //scan.scan("092971283155",2);
         //scan.scan("00662498001213");
 
-       // scan.scan("26937357203267",2);
-        //scan.scan("092971282356");
-        //scan.scan("09297128235");
+        //scan.scan("26937357203267");
+        scan.scan("092971282356");
+        scan.scan("09297128235");
 
        //scan.closeSection();
 
-       // scan.scanBatteryReturn("017724660915",2);
-
-
+//        scan.scan("00074130066274");
+//        scan.scan("074130048812");
+//        scan.scan("074130066304");
 
 
 

@@ -19,6 +19,14 @@
     </test>
 
 
+
+    <test name = "Suite Setup">
+        <classes>
+            <class name="com.mavis.scanner.config.SuiteConfig"/>
+        </classes>
+    </test>
+
+
     <!-- Tire E2E - Solo inventory (PC=2 only) -->
     <test name="Tire E2E">
         <parameter name="INVENTORY_PCS" value="2"/>
@@ -167,20 +175,6 @@
         <classes>
             <class name="com.mavis.scanner.functional.DeadcountScannerTest"/>
         </classes>
-    </test>
-
-    <test name="Scanner Reliability - Tire Inventory">
-        <parameter name="INVENTORY_PCS" value="2"/>
-        <classes>
-            <class name="com.mavis.scanner.functional.ScannerReliabilityTest">
-                <methods>
-                    <exclude name="testFinishWithMostSectionsEmpty"/>
-                    <exclude name="testScanItemBeforeSection"/>
-                    <exclude name="testSwitchSectionWithoutClosing"/>
-                </methods>
-            </class>
-        </classes>
-
     </test>
 
 

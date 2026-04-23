@@ -6,6 +6,8 @@ import com.aventstack.extentreports.MediaEntityBuilder;
 import com.aventstack.extentreports.reporter.ExtentSparkReporter;
 import com.aventstack.extentreports.reporter.configuration.Theme;
 import com.mavis.scanner.config.AppConfig;
+import com.mavis.scanner.utils.EmailHelper;
+import com.mavis.scanner.utils.InventorySetupHelper;
 import io.appium.java_client.android.AndroidDriver;
 import io.appium.java_client.android.options.UiAutomator2Options;
 import org.openqa.selenium.OutputType;
@@ -16,7 +18,6 @@ import org.testng.ITestContext;
 import org.testng.annotations.AfterSuite;
 import org.testng.annotations.BeforeSuite;
 import org.testng.annotations.BeforeTest;
-import com.mavis.scanner.utils.InventorySetupHelper;
 
 import java.io.File;
 import java.net.MalformedURLException;
@@ -43,6 +44,9 @@ public abstract class BaseTest {
     private String testName;
     private LocalDateTime startTime;
     private final List<String> steps = new ArrayList<>();
+    /** Set these so failed tests clean up their inventory from inv_hdr_group (invNum) and inv_hdr (invCode=group_id) */
+    protected String activeInvNum;
+    protected String activeInvCode;
     private static final DateTimeFormatter TIME_FMT = DateTimeFormatter.ofPattern("HH:mm:ss.SSS");
     private static final DateTimeFormatter FILE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH-mm-ss");
 
@@ -55,16 +59,15 @@ public abstract class BaseTest {
     private static Process appiumProcess;
 
     private static String reportDir;
-    protected String activeInvNum;
-    protected String activeInvCode;
 
 
     @BeforeSuite(alwaysRun = true)
     public void startAppiumServer() throws Exception {
         System.out.println("[BaseTest] Starting Appium server...");
 
-        ProcessBuilder pb = new ProcessBuilder("/C:\\Users\\ashafiq\\AppData\\Roaming\\npm\\appium.cmd",
-                "--address", "127.0.0.1", "--port", "4723","--allow-insecure", "*:adb_shell");
+        ProcessBuilder pb = new ProcessBuilder("cmd.exe", "/c", "npx", "appium",
+                "--address", "127.0.0.1", "--port", "4723",
+                "--allow-insecure", "*:adb_shell");
         pb.redirectErrorStream(true);
         // Send output to a log file so it doesn't flood the console
         pb.redirectOutput(new File("test-reports/appium-server.log"));
@@ -98,7 +101,7 @@ public abstract class BaseTest {
     @BeforeSuite(alwaysRun = true)
     public void initExtentReport() {
         String timestamp = LocalDateTime.now().format(FILE_FMT);
-          reportDir = "test-reports";
+        reportDir = "test-reports";
         screenshotDir = reportDir + "/screenshots";
 
         new File(reportDir).mkdirs();
@@ -137,6 +140,7 @@ public abstract class BaseTest {
         if (extent != null) {
             extent.flush();
             System.out.println("[ExtentReport] Report flushed to disk.");
+            // Email sending is now handled by TestListener.onFinish()
         }
     }
 
@@ -166,7 +170,7 @@ public abstract class BaseTest {
      */
     @BeforeTest(alwaysRun = true)
     public void loadTestParameters(ITestContext context) {
-        String[] keys = {"TEST_STORE", "SCHEDULE_IF_NEEDED", "INVENTORY_PCS"};
+        String[] keys = {"TEST_STORE", "SCHEDULE_IF_NEEDED", "INVENTORY_PCS", "DEVICE_UDID"};
         for (String key : keys) {
             String value = context.getCurrentXmlTest().getParameter(key);
             if (value == null || value.isEmpty()) {
@@ -193,6 +197,12 @@ public abstract class BaseTest {
         System.out.println("TEST: " + testName);
         System.out.println("START: " + startTime.format(TIME_FMT));
         System.out.println("=".repeat(70));
+
+        // Wipe app data (SQLite, SharedPreferences, cache) before launch so each
+        // test starts from a clean slate. Skip with -DCLEAR_APP_DATA=false.
+        if (!"false".equalsIgnoreCase(System.getProperty("CLEAR_APP_DATA", "true"))) {
+            clearAppData();
+        }
 
         try {
             UiAutomator2Options options = new UiAutomator2Options();
@@ -255,12 +265,18 @@ public abstract class BaseTest {
     }
 
     protected void teardown() {
+        // Clean up test inventory before quitting driver
         if (activeInvNum != null || activeInvCode != null) {
             InventorySetupHelper.deleteInventory(activeInvNum, activeInvCode);
             activeInvNum = null;
             activeInvCode = null;
         }
-        ensureAirplanceModeOff();
+
+        // Safety net: ensure airplane mode is OFF before quitting the driver.
+        // If a test enabled airplane mode and crashed before disabling it,
+        // all subsequent tests will fail because the device has no network.
+        ensureAirplaneModeOff();
+
         if (driver != null) {
             try {
                 driver.quit();
@@ -272,7 +288,46 @@ public abstract class BaseTest {
         printSummary();
     }
 
-    private void ensureAirplanceModeOff() {
+    /**
+     * Wipe app data (SQLite DB, SharedPreferences, cache) via `pm clear`.
+     * Does NOT uninstall the APK. Runs before each test's driver is created
+     * so every test starts from a fully clean app state.
+     *
+     * Runs directly via host ADB since the Appium driver hasn't been created
+     * yet at this point.
+     */
+    protected void clearAppData() {
+        try {
+            ProcessBuilder pb = new ProcessBuilder(
+                    AppConfig.ADB_PATH, "-s", AppConfig.getDeviceUDID(),
+                    "shell", "pm", "clear", AppConfig.APP_PACKAGE);
+            pb.redirectErrorStream(true);
+            Process p = pb.start();
+            String output = new String(p.getInputStream().readAllBytes()).trim();
+            boolean finished = p.waitFor(10, java.util.concurrent.TimeUnit.SECONDS);
+            if (!finished) {
+                p.destroyForcibly();
+                System.err.println("[BaseTest] clearAppData: pm clear timed out");
+                return;
+            }
+            if (p.exitValue() == 0 && output.toLowerCase().contains("success")) {
+                System.out.println("[BaseTest] Cleared app data for " + AppConfig.APP_PACKAGE);
+            } else {
+                System.err.println("[BaseTest] clearAppData exit=" + p.exitValue()
+                        + " output=" + output);
+            }
+        } catch (Exception e) {
+            System.err.println("[BaseTest] clearAppData failed: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Ensures airplane mode is disabled on the device. Tries via the Appium driver
+     * first, then falls back to direct ADB. Retries up to 3 times with verification.
+     * This prevents a stuck airplane-mode state from cascading failures to all
+     * subsequent tests.
+     */
+    private void ensureAirplaneModeOff() {
         for (int attempt = 1; attempt <= 3; attempt++) {
             try {
                 // Check current airplane mode state via ADB
@@ -371,6 +426,7 @@ public abstract class BaseTest {
             e.printStackTrace(System.err);
         }
         captureScreenshot("FAIL_" + testName);
+
         if (e != null && extentTest != null) {
             extentTest.fail(e);
         }

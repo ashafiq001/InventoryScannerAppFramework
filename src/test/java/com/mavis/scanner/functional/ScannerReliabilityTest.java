@@ -56,9 +56,10 @@ public class ScannerReliabilityTest extends BaseTest {
             dwHelper.scanSectionBarcode(section(0));
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
 
-            if(WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
+            // Handle overwrite dialog if section already has data
+            if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
                 driver.findElement(DIALOG_BUTTON_POSITIVE).click();
-                Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+                Thread.sleep(AppConfig.SHORT_WAIT);
             }
 
             // Rapid-fire 5 scans with minimal delay (simulates fast scanner)
@@ -68,11 +69,14 @@ public class ScannerReliabilityTest extends BaseTest {
             }
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT); // Let last scan settle
 
-             if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
+            // Dismiss dialog if it appears after scanning
+            if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL)) {
+                driver.findElement(DIALOG_BUTTON_NEUTRAL).click();
+                Thread.sleep(AppConfig.SHORT_WAIT);
+            } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
                 driver.findElement(DIALOG_BUTTON_POSITIVE).click();
                 Thread.sleep(AppConfig.SHORT_WAIT);
             }
-
 
             int listCount = mainScan.getItemCount();
             logStep("Scanned 5 items rapidly, list shows: " + listCount);
@@ -485,289 +489,282 @@ public class ScannerReliabilityTest extends BaseTest {
         }
     }
 
-//    // ==================== MALFORMED BARCODE ====================
-//
-//    @Test(priority = 9, description = "Scan garbage barcode — app must not crash")
-//    public void testMalformedBarcodeDoesNotCrash() {
-//        System.setProperty("SCHEDULE_IF_NEEDED", "true");
-//        System.setProperty("INVENTORY_PCS", "2");
-//
-//        currentInv = InventorySetupHelper.resolveInventory();
-//        activeInvNum=currentInv.invNum;
-//        activeInvCode=currentInv.invCode;
-//        setup("Malformed Barcode - No Crash");
-//        try {
-//            loginToTireScanScreen();
-//            DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
-//            MainScanPage mainScan = new MainScanPage(driver, wait);
-//
-//            requireUpcs(1);
-//            requireSections(1);
-//
-//            // Open a valid section first
-//            ScanHelper scan = new ScanHelper(driver, wait);
-//            scan.scan(section(0));
-//
-//            // Scan various garbage barcodes
-//            String[] garbageBarcodes = {
-//                    "",                    // empty
-//                    " ",                   // whitespace
-//                    "STR-",                // section prefix only, no number
-//                    "STR-ABC",             // non-numeric section
-//                    "000000000000",        // all zeros
-//                    "!@#$%^&*()",          // special characters
-//                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",  // very long
-//                    "null",                // literal null
-//                    "undefined",           // literal undefined
-//            };
-//
-//            int reloginCount = 0;
-//
-//            for (String barcode : garbageBarcodes) {
-//                logStep("Scanning garbage: '" + barcode + "'");
-//                try {
-//                    dwHelper.scanItemBarcode(barcode);
-//                    Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-//
-//                    // Dismiss any error dialog
-//                    if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
-//                        driver.findElement(DIALOG_BUTTON_POSITIVE).click();
-//                        Thread.sleep(500);
-//                    }
-//                } catch (Exception e) {
-//                    logStep("  Error (non-fatal): " + e.getMessage());
-//                }
-//
-//                // Check if app crashed (left MainActivity)
-//                String activity = driver.currentActivity();
-//                if (activity == null || !activity.contains("MainActivity")) {
-//                    reloginCount++;
-//                    logStep("CRASH DETECTED after '" + barcode + "' (activity: " + activity + ") — re-login attempt #" + reloginCount);
-//                    try {
-//                        // Re-login with existing inventory — don't resolve a new one
-//                        StartHomePage startHome = new StartHomePage(driver, wait);
-//                        LoginPage loginPage = startHome.tapStartInventory();
-//                        Thread.sleep(AppConfig.SHORT_WAIT);
-//                        loginPage.login(currentInv.store, AppConfig.TEST_EMPLOYEE, currentInv.invCode);
-//                        Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
-//                        if (loginPage.isDisplayed()) Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
-//                        Assert.assertTrue(mainScan.isDisplayed(), "Re-login failed — not on scan screen");
-//                        scan.scan(section(0));
-//                        logStep("Re-login #" + reloginCount + " succeeded, continuing");
-//                    } catch (Exception loginEx) {
-//                        fail("App crashed on '" + barcode + "' and re-login failed: " + loginEx.getMessage(), loginEx);
-//                        return;
-//                    }
-//                }
-//            }
-//
-//            logStep("Re-login was needed " + reloginCount + " time(s) out of " + garbageBarcodes.length + " garbage scans");
-//
-//            // Verify normal scanning still works after all the garbage
-//            scan.scan(upc(0));
-//            int listCount = mainScan.getItemCount();
-//            Assert.assertTrue(listCount >= 1,
-//                    "RECOVERY FAILURE: After garbage barcodes, normal scan broken. " +
-//                            "List shows " + listCount);
-//
-//            logStep("All garbage barcodes handled without crash, normal scan works");
-//            pass();
-//        } catch (Exception e) {
-//            fail("Malformed barcode test failed: " + e.getMessage(), e);
-//        } finally {
-//            teardown();
-//        }
-//    }
+    // ==================== MALFORMED BARCODE ====================
 
-//    // ==================== STR-9999 MISC SECTION ====================
-//
-//    @Test(priority = 10, description = "STR-9999 misc section: scan items — must not count toward section completion")
-//    public void testMiscSectionDoesNotCountAsCompleted() {
-//        setup("STR-9999 Misc Section - Not Counted");
-//        try {
-//            loginToTireScanScreen();
-//            requireUpcs(2);
-//            requireSections(1);
-//            ScanHelper scan = new ScanHelper(driver, wait);
-//            MainScanPage mainScan = new MainScanPage(driver, wait);
-//
-//            // Scan the misc section STR-9999
-//            scan.scan("STR-9999");
-//            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-//
-//            String sectionOutput = mainScan.getSectionOutput();
-//            logStep("STR-9999 section output: " + sectionOutput);
-//
-//            // Scan an item into it
-//            scan.scan(upc(0));
-//            int listCount = mainScan.getItemCount();
-//            logStep("Scanned 1 item into STR-9999, list shows: " + listCount);
-//
-//            Assert.assertTrue(listCount >= 1,
-//                    "STR-9999 BUG: Item scanned into misc section but not shown in list. " +
-//                            "List shows " + listCount);
-//
-//            // Close misc section
-//            scan.closeSection();
-//            logStep("Closed STR-9999 section");
-//
-//            // Section counter should NOT include STR-9999
-//            String outputAfterClose = mainScan.getSectionOutput();
-//            logStep("Section output after closing STR-9999: " + outputAfterClose);
-//
-//            // Now scan a real section to verify normal flow still works
-//            scan.scan(section(0));
-//            scan.scan(upc(1));
-//            scan.closeSection();
-//            logStep("Scanned and closed a real section (" + section(0) + ") after misc section");
-//
-//            pass();
-//        } catch (Exception e) {
-//            fail("STR-9999 misc section test failed: " + e.getMessage(), e);
-//        } finally {
-//            teardown();
-//        }
-//    }
+    @Test(priority = 9, description = "Scan garbage barcode — app must not crash")
+    public void testMalformedBarcodeDoesNotCrash() {
+        setup("Malformed Barcode - No Crash");
+        try {
+            loginToTireScanScreen();
+            DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
+            MainScanPage mainScan = new MainScanPage(driver, wait);
 
-//    @Test(priority = 11, description = "STR-9999: items scanned in misc section must still upload")
-//    public void testMiscSectionItemsUpload() {
-//        setup("STR-9999 Misc Section - Items Upload");
-//        try {
-//            loginToTireScanScreen();
-//            ScanHelper scan = new ScanHelper(driver, wait);
-//            MainScanPage mainScan = new MainScanPage(driver, wait);
-//
-//            requireUpcs(3);
-//
-//            // Scan items into misc section
-//            scan.scan("STR-9999");
-//            scan.scan(upc(0));
-//            scan.scan(upc(1));
-//            scan.scan(upc(2));
-//            scan.closeSection(3);
-//            logStep("Scanned 3 items into STR-9999 and closed");
-//
-//            // Finish inventory — close all real sections with 0
-//            scrollToBottom();
-//            mainScan.tapFinish();
-//            Thread.sleep(AppConfig.MEDIUM_WAIT);
-//
-//            By closeWith0 = By.xpath("//*[translate(@text,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='close with 0']");
-//            By yesBtn = By.xpath("//*[translate(@text,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='yes']");
-//            int missedSections = 0;
-//
-//            for (int i = 0; i < 200; i++) {
-//                try {
-//                    org.openqa.selenium.WebElement found = WaitHelper.waitForAny(driver, 10,
-//                            closeWith0, yesBtn);
-//                    String text = found.getText();
-//
-//                    if (text.equalsIgnoreCase("CLOSE WITH 0")) {
-//                        missedSections++;
-//                        found.click();
-//                        Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-//                        scrollToBottom();
-//                        mainScan.tapFinish();
-//                        Thread.sleep(AppConfig.MEDIUM_WAIT);
-//                    } else if (text.equalsIgnoreCase("YES")) {
-//                        logStep("Confirming finish after closing " + missedSections + " sections with 0");
-//                        found.click();
-//                        Thread.sleep(AppConfig.LONG_WAIT);
-//                        break;
-//                    }
-//                } catch (Exception e) {
-//                    break;
-//                }
-//            }
-//
-//            handlePostFinishDialogs();
-//            Thread.sleep(AppConfig.LONG_WAIT);
-//
-//            // Verify upload — STR-9999 items MUST be included in upload count
-//            FinalConfirmPage confirmPage = new FinalConfirmPage(driver, wait);
-//            if (!confirmPage.isDisplayed()) {
-//                Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
-//            }
-//
-//            if (confirmPage.isDisplayed()) {
-//                String countInfo = confirmPage.getCountInfo();
-//                logStep("Final confirmation: " + countInfo);
-//
-//                if (countInfo.contains("- 0 item") || countInfo.contains("- 0 ")) {
-//                    Assert.fail("STR-9999 UPLOAD BUG: Scanned 3 items into misc section " +
-//                            "but upload shows 0 items! Misc section items NOT uploaded. " +
-//                            "countInfo: " + countInfo);
-//                }
-//
-//                logStep("VERIFIED: STR-9999 items included in upload");
-//            } else {
-//                String activity = driver.currentActivity();
-//                if (!activity.contains("FinalConfirm")) {
-//                    Assert.fail("STR-9999 UPLOAD FAILURE: Never reached FinalConfirmActivity. " +
-//                            "Activity: " + activity);
-//                }
-//            }
-//
-//            pass();
-//        } catch (Exception e) {
-//            fail("STR-9999 upload test failed: " + e.getMessage(), e);
-//        } finally {
-//            teardown();
-//        }
-//    }
+            requireUpcs(1);
+            requireSections(1);
 
-//    @Test(priority = 12, description = "STR-9999: scan misc section, then real sections — no interference")
-//    public void testMiscSectionDoesNotInterfereWithRealSections() {
-//        setup("STR-9999 No Interference");
-//        try {
-//            loginToTireScanScreen();
-//            ScanHelper scan = new ScanHelper(driver, wait);
-//            MainScanPage mainScan = new MainScanPage(driver, wait);
-//
-//            requireUpcs(4);
-//            requireSections(2);
-//
-//            // Scan misc section first
-//            scan.scan("STR-9999");
-//            scan.scan(upc(0));
-//            scan.closeSection(1);
-//            logStep("Closed STR-9999 with 1 item");
-//
-//            // Now scan 2 real sections
-//            scan.scan(section(0));
-//            scan.scan(upc(1));
-//            scan.scan(upc(2));
-//            int count1 = mainScan.getItemCount();
-//            scan.closeSection(2);
-//            logStep("Closed " + section(0) + " with 2 items (list showed " + count1 + ")");
-//
-//            scan.scan(section(1));
-//            scan.scan(upc(3));
-//            int count2 = mainScan.getItemCount();
-//            scan.closeSection(1);
-//            logStep("Closed " + section(1) + " with 1 item (list showed " + count2 + ")");
-//
-//            // Verify section output shows correct count (should be 2 real sections, NOT 3)
-//            // STR-9999 is excluded from section counts in the app
-//            String sectionOutput = mainScan.getSectionOutput();
-//            logStep("Section output after 2 real + 1 misc: " + sectionOutput);
-//
-//            // The section counter in the app should reflect only real sections
-//            // e.g., "Store: 30 Section: 3/20" where 3 = 2 real + current (not counting 9999)
-//            Assert.assertFalse(sectionOutput.isEmpty(),
-//                    "SECTION STATE BUG: Section output is empty after scanning 3 sections. " +
-//                            "App may have lost track of section state.");
-//
-//            pass();
-//        } catch (Exception e) {
-//            fail("STR-9999 interference test failed: " + e.getMessage(), e);
-//        } finally {
-//            teardown();
-//        }
-//    }
+            // Open a valid section first
+            ScanHelper scan = new ScanHelper(driver, wait);
+            scan.scan(section(0));
+
+            // Scan various garbage barcodes
+            String[] garbageBarcodes = {
+                    "",                    // empty
+                    " ",                   // whitespace
+                    "STR-",                // section prefix only, no number
+                    "STR-ABC",             // non-numeric section
+                    "000000000000",        // all zeros
+                    "!@#$%^&*()",          // special characters
+                    "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",  // very long
+                    "null",                // literal null
+                    "undefined",           // literal undefined
+            };
+
+            int reloginCount = 0;
+
+            for (String barcode : garbageBarcodes) {
+                logStep("Scanning garbage: '" + barcode + "'");
+                try {
+                    dwHelper.scanItemBarcode(barcode);
+                    Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+
+                    // Dismiss any error dialog
+                    if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
+                        driver.findElement(DIALOG_BUTTON_POSITIVE).click();
+                        Thread.sleep(500);
+                    }
+                } catch (Exception e) {
+                    logStep("  Error (non-fatal): " + e.getMessage());
+                }
+
+                // Check if app crashed (left MainActivity)
+                String activity = driver.currentActivity();
+                if (activity == null || !activity.contains("MainActivity")) {
+                    reloginCount++;
+                    logStep("CRASH DETECTED after '" + barcode + "' (activity: " + activity + ") — re-login attempt #" + reloginCount);
+                    try {
+                        // Re-login with existing inventory — don't resolve a new one
+                        StartHomePage startHome = new StartHomePage(driver, wait);
+                        LoginPage loginPage = startHome.tapStartInventory();
+                        Thread.sleep(AppConfig.SHORT_WAIT);
+                        loginPage.login(currentInv.store, AppConfig.TEST_EMPLOYEE, currentInv.invCode);
+                        Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+                        if (loginPage.isDisplayed()) Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+                        Assert.assertTrue(mainScan.isDisplayed(), "Re-login failed — not on scan screen");
+                        scan.scan(section(0));
+                        logStep("Re-login #" + reloginCount + " succeeded, continuing");
+                    } catch (Exception loginEx) {
+                        fail("App crashed on '" + barcode + "' and re-login failed: " + loginEx.getMessage(), loginEx);
+                        return;
+                    }
+                }
+            }
+
+            logStep("Re-login was needed " + reloginCount + " time(s) out of " + garbageBarcodes.length + " garbage scans");
+
+            // Verify normal scanning still works after all the garbage
+            scan.scan(upc(0));
+            int listCount = mainScan.getItemCount();
+            Assert.assertTrue(listCount >= 1,
+                    "RECOVERY FAILURE: After garbage barcodes, normal scan broken. " +
+                            "List shows " + listCount);
+
+            logStep("All garbage barcodes handled without crash, normal scan works");
+            pass();
+        } catch (Exception e) {
+            fail("Malformed barcode test failed: " + e.getMessage(), e);
+        } finally {
+            teardown();
+        }
+    }
+
+    // ==================== STR-9999 MISC SECTION ====================
+
+    @Test(priority = 10, description = "STR-9999 misc section: scan items — must not count toward section completion")
+    public void testMiscSectionDoesNotCountAsCompleted() {
+        setup("STR-9999 Misc Section - Not Counted");
+        try {
+            loginToTireScanScreen();
+            requireUpcs(2);
+            requireSections(1);
+            ScanHelper scan = new ScanHelper(driver, wait);
+            MainScanPage mainScan = new MainScanPage(driver, wait);
+
+            // Scan the misc section STR-9999
+            scan.scan("STR-9999");
+            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+
+            String sectionOutput = mainScan.getSectionOutput();
+            logStep("STR-9999 section output: " + sectionOutput);
+
+            // Scan an item into it
+            scan.scan(upc(0));
+            int listCount = mainScan.getItemCount();
+            logStep("Scanned 1 item into STR-9999, list shows: " + listCount);
+
+            Assert.assertTrue(listCount >= 1,
+                    "STR-9999 BUG: Item scanned into misc section but not shown in list. " +
+                            "List shows " + listCount);
+
+            // Close misc section
+            scan.closeSection();
+            logStep("Closed STR-9999 section");
+
+            // Section counter should NOT include STR-9999
+            String outputAfterClose = mainScan.getSectionOutput();
+            logStep("Section output after closing STR-9999: " + outputAfterClose);
+
+            // Now scan a real section to verify normal flow still works
+            scan.scan(section(0));
+            scan.scan(upc(1));
+            scan.closeSection();
+            logStep("Scanned and closed a real section (" + section(0) + ") after misc section");
+
+            pass();
+        } catch (Exception e) {
+            fail("STR-9999 misc section test failed: " + e.getMessage(), e);
+        } finally {
+            teardown();
+        }
+    }
+
+    @Test(priority = 11, description = "STR-9999: items scanned in misc section must still upload")
+    public void testMiscSectionItemsUpload() {
+        setup("STR-9999 Misc Section - Items Upload");
+        try {
+            loginToTireScanScreen();
+            ScanHelper scan = new ScanHelper(driver, wait);
+            MainScanPage mainScan = new MainScanPage(driver, wait);
+
+            requireUpcs(3);
+
+            // Scan items into misc section
+            scan.scan("STR-9999");
+            scan.scan(upc(0));
+            scan.scan(upc(1));
+            scan.scan(upc(2));
+            scan.closeSection(3);
+            logStep("Scanned 3 items into STR-9999 and closed");
+
+            // Finish inventory — close all real sections with 0
+            scrollToBottom();
+            mainScan.tapFinish();
+            Thread.sleep(AppConfig.MEDIUM_WAIT);
+
+            By closeWith0 = By.xpath("//*[translate(@text,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='close with 0']");
+            By yesBtn = By.xpath("//*[translate(@text,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='yes']");
+            int missedSections = 0;
+
+            for (int i = 0; i < 200; i++) {
+                try {
+                    org.openqa.selenium.WebElement found = WaitHelper.waitForAny(driver, 10,
+                            closeWith0, yesBtn);
+                    String text = found.getText();
+
+                    if (text.equalsIgnoreCase("CLOSE WITH 0")) {
+                        missedSections++;
+                        found.click();
+                        Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+                        scrollToBottom();
+                        mainScan.tapFinish();
+                        Thread.sleep(AppConfig.MEDIUM_WAIT);
+                    } else if (text.equalsIgnoreCase("YES")) {
+                        logStep("Confirming finish after closing " + missedSections + " sections with 0");
+                        found.click();
+                        Thread.sleep(AppConfig.LONG_WAIT);
+                        break;
+                    }
+                } catch (Exception e) {
+                    break;
+                }
+            }
+
+            handlePostFinishDialogs();
+            Thread.sleep(AppConfig.LONG_WAIT);
+
+            // Verify upload — STR-9999 items MUST be included in upload count
+            FinalConfirmPage confirmPage = new FinalConfirmPage(driver, wait);
+            if (!confirmPage.isDisplayed()) {
+                Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+            }
+
+            if (confirmPage.isDisplayed()) {
+                String countInfo = confirmPage.getCountInfo();
+                logStep("Final confirmation: " + countInfo);
+
+                if (countInfo.contains("- 0 item") || countInfo.contains("- 0 ")) {
+                    Assert.fail("STR-9999 UPLOAD BUG: Scanned 3 items into misc section " +
+                            "but upload shows 0 items! Misc section items NOT uploaded. " +
+                            "countInfo: " + countInfo);
+                }
+
+                logStep("VERIFIED: STR-9999 items included in upload");
+            } else {
+                String activity = driver.currentActivity();
+                if (!activity.contains("FinalConfirm")) {
+                    Assert.fail("STR-9999 UPLOAD FAILURE: Never reached FinalConfirmActivity. " +
+                            "Activity: " + activity);
+                }
+            }
+
+            pass();
+        } catch (Exception e) {
+            fail("STR-9999 upload test failed: " + e.getMessage(), e);
+        } finally {
+            teardown();
+        }
+    }
+
+    @Test(priority = 12, description = "STR-9999: scan misc section, then real sections — no interference")
+    public void testMiscSectionDoesNotInterfereWithRealSections() {
+        setup("STR-9999 No Interference");
+        try {
+            loginToTireScanScreen();
+            ScanHelper scan = new ScanHelper(driver, wait);
+            MainScanPage mainScan = new MainScanPage(driver, wait);
+
+            requireUpcs(4);
+            requireSections(2);
+
+            // Scan misc section first
+            scan.scan("STR-9999");
+            scan.scan(upc(0));
+            scan.closeSection(1);
+            logStep("Closed STR-9999 with 1 item");
+
+            // Now scan 2 real sections
+            scan.scan(section(0));
+            scan.scan(upc(1));
+            scan.scan(upc(2));
+            int count1 = mainScan.getItemCount();
+            scan.closeSection(2);
+            logStep("Closed " + section(0) + " with 2 items (list showed " + count1 + ")");
+
+            scan.scan(section(1));
+            scan.scan(upc(3));
+            int count2 = mainScan.getItemCount();
+            scan.closeSection(1);
+            logStep("Closed " + section(1) + " with 1 item (list showed " + count2 + ")");
+
+            // Verify section output shows correct count (should be 2 real sections, NOT 3)
+            // STR-9999 is excluded from section counts in the app
+            String sectionOutput = mainScan.getSectionOutput();
+            logStep("Section output after 2 real + 1 misc: " + sectionOutput);
+
+            // The section counter in the app should reflect only real sections
+            // e.g., "Store: 30 Section: 3/20" where 3 = 2 real + current (not counting 9999)
+            Assert.assertFalse(sectionOutput.isEmpty(),
+                    "SECTION STATE BUG: Section output is empty after scanning 3 sections. " +
+                            "App may have lost track of section state.");
+
+            pass();
+        } catch (Exception e) {
+            fail("STR-9999 interference test failed: " + e.getMessage(), e);
+        } finally {
+            teardown();
+        }
+    }
 
     // ==================== WIFI / NETWORK SCENARIOS ====================
-
 
     @Test(priority = 13, description = "Toggle airplane mode before finish — upload must fail gracefully, data preserved")
     public void testFinishWithNoWifi() {
@@ -885,8 +882,7 @@ public class ScannerReliabilityTest extends BaseTest {
                 Thread.sleep(AppConfig.MEDIUM_WAIT);
 
                 // Handle close-with-0 / yes dialogs for remaining sections
-                 closeWith0 = By.xpath("//*[translate(@text,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='close with 0']");
-                 yesBtn = By.xpath("//*[translate(@text,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz')='yes']");
+                // Reuses closeWith0/yesBtn declared earlier in this method's try block.
                 for (int i = 0; i < 200; i++) {
                     try {
                         org.openqa.selenium.WebElement found = WaitHelper.waitForAny(driver, 10,
@@ -1474,6 +1470,124 @@ public class ScannerReliabilityTest extends BaseTest {
         }
     }
 
+    // ==================== SIA-1223: 16th SECTION DUPLICATE COUNT ====================
+
+    @Test(priority = 21, description = "SIA-1223: Scan item in extra section beyond pulled list — must not duplicate count")
+    public void testExtraSectionNoDuplicateCount() {
+        setup("SIA-1223 - Extra Section No Duplicate");
+        try {
+            loginToTireScanScreen();
+            requireUpcs(1);
+            requireSections(1);
+            ScanHelper scan = new ScanHelper(driver, wait);
+            MainScanPage mainScan = new MainScanPage(driver, wait);
+
+            // Close all pulled sections with 0 so allSectionsCompleted = true
+            int pulledSections = testSections.size();
+            for (int i = 0; i < pulledSections; i++) {
+                scan.scan(section(i));
+                scan.closeSection(0);
+                if ((i + 1) % 5 == 0 || (i + 1) == pulledSections) {
+                    logStep("Closed " + (i + 1) + "/" + pulledSections + " pulled sections with 0");
+                }
+            }
+            logStep("All " + pulledSections + " pulled sections closed — scanning extra section");
+
+            // Now scan an EXTRA section not in the pulled list (STR-9999 misc section)
+            // This triggers the code path where the bug lived (rowNum++ causing double count)
+            scan.scan("STR-9999");
+            String testUpc = upc(0);
+
+            scan.scan(testUpc);
+            int countAfterFirst = mainScan.getItemCount();
+            logStep("Extra section: scanned 1 item, list shows " + countAfterFirst);
+
+            // Scan a second item — count should go up by exactly 1, not 2
+            scan.scan(testUpc);
+            int countAfterSecond = mainScan.getItemCount();
+            logStep("Extra section: scanned 2nd item, list shows " + countAfterSecond);
+
+            // The bug was rowNum++ causing items to be double-counted in extra sections
+            int itemsAdded = countAfterSecond - countAfterFirst;
+            Assert.assertEquals(itemsAdded, 1,
+                    "SIA-1223 REGRESSION: Scanning in extra section added " + itemsAdded +
+                            " items instead of 1. Duplicate count bug has returned! " +
+                            "Count: " + countAfterFirst + " -> " + countAfterSecond);
+
+            logStep("VERIFIED: SIA-1223 fix holds — no duplicate counting in extra section");
+            pass();
+        } catch (Exception e) {
+            fail("SIA-1223 extra section test failed: " + e.getMessage(), e);
+        } finally {
+            teardown();
+        }
+    }
+
+    // ==================== SIA-1229: SECTION DISPLAY AFTER UNCLOSED SECTION ====================
+
+    @Test(priority = 22, description = "SIA-1229: Scan new section without closing previous — display must update correctly")
+    public void testUnclosedSectionDisplayUpdate() {
+        setup("SIA-1229 - Section Display Update");
+        try {
+            loginToTireScanScreen();
+            requireUpcs(2);
+            requireSections(2);
+            ScanHelper scan = new ScanHelper(driver, wait);
+            MainScanPage mainScan = new MainScanPage(driver, wait);
+            DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
+
+            // Open section 1, scan an item but DON'T close
+            dwHelper.scanSectionBarcode(section(0));
+            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            dismissAnyDialog();
+            dwHelper.scanItemBarcode(upc(0));
+            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            dismissAnyDialog();
+            logStep("Section 1 (" + section(0) + ") opened, 1 item scanned, NOT closed");
+
+            // Now scan section 2 without closing section 1
+            dwHelper.scanSectionBarcode(section(1));
+            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            dismissAnyDialog();
+
+            // The SIA-1229 fix ensures section display updates to the new section
+            String sectionOutput = mainScan.getSectionOutput();
+            logStep("Section output after switching: " + sectionOutput);
+
+            // Section display should NOT be blank (the old bug cleared it)
+            Assert.assertFalse(sectionOutput == null || sectionOutput.trim().isEmpty(),
+                    "SIA-1229 REGRESSION: Section display is blank after switching sections " +
+                            "without closing previous. Should show new section info.");
+
+            // Scan an item in section 2 — it should register normally
+            dwHelper.scanItemBarcode(upc(1));
+            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+            dismissAnyDialog();
+            int itemCount = mainScan.getItemCount();
+
+            Assert.assertTrue(itemCount >= 1,
+                    "SIA-1229 REGRESSION: Item scanned in new section but not registered. " +
+                            "Count: " + itemCount);
+
+            logStep("VERIFIED: SIA-1229 fix holds — section display updated, items register correctly");
+            pass();
+        } catch (Exception e) {
+            fail("SIA-1229 section display test failed: " + e.getMessage(), e);
+        } finally {
+            teardown();
+        }
+    }
+
+    private void dismissAnyDialog() {
+        try {
+            Thread.sleep(500);
+            if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
+                driver.findElement(DIALOG_BUTTON_POSITIVE).click();
+                Thread.sleep(500);
+            }
+        } catch (Exception e) { /* No dialog */ }
+    }
+
     // ==================== HELPERS ====================
 
     /**
@@ -1505,14 +1619,20 @@ public class ScannerReliabilityTest extends BaseTest {
         if (loginPage.isDisplayed()) Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
 
         MainScanPage mainScan = new MainScanPage(driver, wait);
-        if (!mainScan.isDisplayed()) {
+        // Poll up to 60s for the tire scan screen — login sync can be slow, especially on re-login.
+        // Bail early with `skip` if the app routed to Parts (wrong PC).
+        long deadline = System.currentTimeMillis() + 60_000;
+        while (!mainScan.isDisplayed() && System.currentTimeMillis() < deadline) {
             String activity = driver.currentActivity();
             if (activity != null && activity.contains("PartsPCActivity")) {
                 skip("App routed to Parts — need tire inventory (PC=2)");
             }
-            Thread.sleep(AppConfig.LONG_WAIT);
+            Thread.sleep(AppConfig.SHORT_WAIT);
         }
-        Assert.assertTrue(mainScan.isDisplayed(), "Should be on tire scan screen");
+        String finalActivity;
+        try { finalActivity = driver.currentActivity(); } catch (Exception e) { finalActivity = "(unknown)"; }
+        Assert.assertTrue(mainScan.isDisplayed(),
+                "Should be on tire scan screen — final activity after 60s wait: " + finalActivity);
         logStep("Logged in and on tire scan screen");
 
         // Load real test data from DB after login (device SQLite is populated)

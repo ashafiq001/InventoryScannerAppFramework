@@ -7,6 +7,7 @@ import com.mavis.scanner.pages.dialogs.AddItemDialog;
 import com.mavis.scanner.pages.dialogs.BoxedOilDialog;
 import com.mavis.scanner.pages.dialogs.ManualCountDialog;
 import com.mavis.scanner.pages.dialogs.MultiItemDialog;
+import com.mavis.scanner.pages.dialogs.QuantityEntryDialog;
 import com.mavis.scanner.utils.DatabaseHelper;
 import com.mavis.scanner.utils.DataWedgeHelper;
 import com.mavis.scanner.utils.InventorySetupHelper;
@@ -441,12 +442,9 @@ public class InventoryEndToEndTest extends BaseTest {
 
         Assert.assertTrue(categoryCount > 0, "At least one PC should be scheduled");
 
-        // Load all available sections once and track which ones have been used
-        List<String> allSections = dbHelper.getSectionBarcodes();
-        if (allSections.isEmpty()) {
-            allSections = new java.util.ArrayList<>(java.util.Arrays.asList(AppConfig.FALLBACK_SECTION_BARCODES));
-        }
-        logStep("Step 3: " + allSections.size() + " section barcodes available");
+        // Sections are resolved per-PC below. A global, PC-agnostic list causes
+        // the app's "section not registered — create?" prompt to fire on mismatched
+        // scans, which inserts phantom rows in inv.storeSections.
         java.util.Set<String> usedSections = new java.util.HashSet<>();
 
         // ===== STEP 4-N: Process each PC =====
@@ -465,6 +463,34 @@ public class InventoryEndToEndTest extends BaseTest {
             String pcCode = AppConfig.getPcCodeFromLabel(pcLabel);
             logStep("PC " + pcSlot + ": Resolved PC code: " + pcCode);
 
+            // Re-verify we're on PartsCategoryPage and btnStart{slot} is actually clickable.
+            // Presence alone isn't enough — a disabled-but-present button would still hang
+            // tapStart's default 30s wait. Short clickable probe fails fast + skips the PC.
+            partsCategory = new PartsCategoryPage(driver, wait);
+            if (!partsCategory.isDisplayed()) {
+                dismissAnyDialog();
+                Thread.sleep(AppConfig.SHORT_WAIT);
+                partsCategory = new PartsCategoryPage(driver, wait);
+            }
+            boolean canStart = false;
+            if (partsCategory.isDisplayed() && partsCategory.isStartButtonVisible(pcSlot)) {
+                try {
+                    new org.openqa.selenium.support.ui.WebDriverWait(driver, java.time.Duration.ofSeconds(5))
+                            .until(org.openqa.selenium.support.ui.ExpectedConditions.elementToBeClickable(
+                                    By.id("com.mavis.inventory_barcode_scanner:id/btnStart" + pcSlot)));
+                    canStart = true;
+                } catch (Exception e) {
+                    // Present but not clickable within 5s
+                }
+            }
+            if (!canStart) {
+                String activity;
+                try { activity = driver.currentActivity(); } catch (Exception e) { activity = "(unknown)"; }
+                logStep("PC " + pcSlot + ": btnStart" + pcSlot +
+                        " not clickable. Activity: " + activity + ". Skipping PC.");
+                continue;
+            }
+
             // Tap Start/Add to enter MainActivityParts
             partsCategory.tapStart(pcSlot);
             Thread.sleep(AppConfig.MEDIUM_WAIT);
@@ -476,10 +502,29 @@ public class InventoryEndToEndTest extends BaseTest {
             }
             logStep("PC " + pcSlot + ": Entered parts scanning screen");
 
+            // --- Resolve the section list for THIS PC only ---
+            int pcInt = -1;
+            try { pcInt = Integer.parseInt(pcCode); } catch (Exception ignored) { /* unresolved label */ }
+
+            List<String> pcSections = (pcInt > 0)
+                    ? queryStoreSections(scheduledInventory.store, pcInt)
+                    : new java.util.ArrayList<>();
+            logStep("PC " + pcSlot + ": " + pcSections.size() + " sections available for pc=" + pcCode);
+
+            if (pcSections.isEmpty()) {
+                logStep("PC " + pcSlot + ": No sections registered for this PC — finishing PC with no scans");
+                scrollToBottom();
+                partsMain.tapFinishCategory();
+                Thread.sleep(AppConfig.MEDIUM_WAIT);
+                handleMissedItems(pcSlot, pcLabel);
+                partsCategory = new PartsCategoryPage(driver, wait);
+                continue;
+            }
+
             // --- Scan a section barcode (use one not yet used by a previous PC) ---
             boolean sectionOpened = false;
             String openedSection = null;
-            for (String sectionBarcode : allSections) {
+            for (String sectionBarcode : pcSections) {
                 if (usedSections.contains(sectionBarcode)) {
                     logStep("PC " + pcSlot + ": Skipping section " + sectionBarcode + " (already used by previous PC)");
                     continue;
@@ -487,7 +532,7 @@ public class InventoryEndToEndTest extends BaseTest {
                 logStep("PC " + pcSlot + ": Scanning section " + sectionBarcode);
                 dwHelper.simulateScan(sectionBarcode, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
                 Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-                dismissAnyDialog();
+                cancelSectionCreationPrompt();
 
                 String sectionOutput = partsMain.getSectionOutput();
                 logStep("PC " + pcSlot + ": Section output: " + sectionOutput);
@@ -841,56 +886,11 @@ public class InventoryEndToEndTest extends BaseTest {
             // After selecting item, a quantity dialog may appear — fall through to qty check
         }
 
-        // Check for quantity dialog (Wipers, Batteries, TPMS, Filters, Rotor/BrakePad)
-        // Retry a few times — the dialog/EditText may take a moment to render
-        By qtyField = By.id("com.mavis.inventory_barcode_scanner:id/addItemQty");
-        By qtyField2 = By.id("com.mavis.inventory_barcode_scanner:id/editTextQty");
-        By anyEditText = By.className("android.widget.EditText");
-
-        By foundQtyField = null;
-        for (int qtyAttempt = 0; qtyAttempt < 3; qtyAttempt++) {
-            if (WaitHelper.isElementPresent(driver, qtyField)) {
-                foundQtyField = qtyField;
-                break;
-            } else if (WaitHelper.isElementPresent(driver, qtyField2)) {
-                foundQtyField = qtyField2;
-                break;
-            } else if (WaitHelper.isElementPresent(driver, anyEditText)) {
-                foundQtyField = anyEditText;
-                break;
-            }
-            // Wait a bit before retrying — dialog may still be rendering
-            Thread.sleep(800);
-        }
-
-        if (foundQtyField != null) {
-            // Read the pre-populated quantity (e.g. TPMS defaults to box qty like 20)
-            // Only enter "1" if the field is empty
-            WebElement qtyElement = driver.findElement(foundQtyField);
-            String existingQty = qtyElement.getText();
-            if (existingQty == null || existingQty.trim().isEmpty()) {
-                existingQty = qtyElement.getAttribute("text");
-            }
-            if (existingQty != null && !existingQty.trim().isEmpty() && !existingQty.trim().equals("0")) {
-                logStep("  Quantity dialog - using pre-filled qty: " + existingQty.trim());
-            } else {
-                logStep("  Quantity dialog - field empty, entering qty 1");
-                qtyElement.clear();
-                qtyElement.sendKeys("1");
-            }
-            Thread.sleep(500);
-            // Tap Submit/OK: try neutral button first (Submit), then positive (OK)
-            By submitBtn = byTextIgnoreCase("SUBMIT");
-            By okBtn = byTextIgnoreCase("OK");
-            if (WaitHelper.isElementPresent(driver, submitBtn)) {
-                driver.findElement(submitBtn).click();
-            } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL)) {
-                driver.findElement(DIALOG_BUTTON_NEUTRAL).click();
-            } else if (WaitHelper.isElementPresent(driver, okBtn)) {
-                driver.findElement(okBtn).click();
-            } else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
-                driver.findElement(DIALOG_BUTTON_POSITIVE).click();
-            }
+        // Quantity dialog (Wipers PC 92 / Oil Filters PC 86 / Batteries PC 65 / TPMS PC 95)
+        QuantityEntryDialog qtyDialog = new QuantityEntryDialog(driver, wait);
+        if (qtyDialog.isDisplayed()) {
+            logStep("  Quantity dialog - entering qty 1 and submitting");
+            qtyDialog.submitWithQuantity("1");
             Thread.sleep(AppConfig.SHORT_WAIT);
             return;
         }
@@ -1069,6 +1069,24 @@ public class InventoryEndToEndTest extends BaseTest {
         handlePostScanDialog();
 
         return true;
+    }
+
+    /**
+     * Decline the app's "section not registered — create?" prompt that can follow
+     * a section scan. Clicking POSITIVE would insert a phantom row into
+     * inv.storeSections under the current PC.
+     */
+    private void cancelSectionCreationPrompt() {
+        try {
+            Thread.sleep(500);
+            if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEGATIVE)) {
+                driver.findElement(DIALOG_BUTTON_NEGATIVE).click();
+                logStep("Declined section create-confirmation (negative button)");
+                Thread.sleep(500);
+            }
+        } catch (Exception e) {
+            // No dialog to decline
+        }
     }
 
     /**

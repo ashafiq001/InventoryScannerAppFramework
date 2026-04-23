@@ -60,10 +60,41 @@ public class MainScanPage {
 
     /**
      * Get count of items in the scanned list.
+     *
+     * txtOutput is a ListView. UiAutomator2's getText() on a ViewGroup returns
+     * concatenated visible child text, but only after the adapter has rendered.
+     * Poll up to ~3s for the count to stabilize across two consecutive reads,
+     * re-finding the element each time to avoid stale references.
      */
     public int getItemCount() {
+        final long deadlineMs = System.currentTimeMillis() + 3000L;
+        int last = readListCount();
+        int stableStreak = 0;
+        while (System.currentTimeMillis() < deadlineMs) {
+            try {
+                Thread.sleep(200);
+            } catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+            int now = readListCount();
+            if (now == last) {
+                stableStreak++;
+                if (stableStreak >= 2) return now;
+            } else {
+                stableStreak = 0;
+                last = now;
+            }
+        }
+        return last;
+    }
+
+    private int readListCount() {
         try {
             WebElement listView = driver.findElement(ITEM_LIST);
+            // SimpleListItem1 renders each row as a single TextView descendant.
+            // Counting children is reliable; ViewGroup.getText() on a ListView
+            // in UiAutomator2 does not return concatenated child text.
             List<WebElement> items = listView.findElements(By.className("android.widget.TextView"));
             return items.size();
         } catch (Exception e) {

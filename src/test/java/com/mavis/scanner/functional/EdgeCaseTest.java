@@ -5,6 +5,7 @@ import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.pages.*;
 import com.mavis.scanner.pages.dialogs.BoxedOilDialog;
 import com.mavis.scanner.pages.dialogs.ManualCountDialog;
+import com.mavis.scanner.pages.dialogs.MultiItemDialog;
 import com.mavis.scanner.utils.DatabaseHelper;
 import com.mavis.scanner.utils.DataWedgeHelper;
 import com.mavis.scanner.utils.InventorySetupHelper;
@@ -18,6 +19,7 @@ import org.openqa.selenium.interactions.Sequence;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.sql.*;
 import java.time.Duration;
 import java.util.*;
 
@@ -53,8 +55,8 @@ public class EdgeCaseTest extends BaseTest {
         if (!inv.scheduledPCs.isEmpty() && !inv.scheduledPCs.contains(2)) {
             skip("No tire PC=2 in resolved inventory: " + inv.scheduledPCs);
         }
-        if(inv.scheduledPCs.isEmpty()) {
-            logStep("Warning No PCs listed - inventory may route to unexpected screen");
+        if (inv.scheduledPCs.isEmpty()) {
+            logStep("WARNING: No PCs listed — inventory may route to unexpected screen");
         }
         return inv;
     }
@@ -80,6 +82,8 @@ public class EdgeCaseTest extends BaseTest {
         loginPage.login(inv.store, AppConfig.TEST_EMPLOYEE, inv.invCode);
         Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
         if (loginPage.isDisplayed()) Thread.sleep(AppConfig.LOGIN_SYNC_WAIT);
+
+        // Dismiss any dialog that may appear after login (sync prompt, error, etc.)
         dismissAnyDialog();
 
         MainScanPage mainScan = new MainScanPage(driver, wait);
@@ -126,6 +130,52 @@ public class EdgeCaseTest extends BaseTest {
         } catch (Exception e) { /* No dialog */ }
     }
 
+    /**
+     * Decline the app's "section not registered — create?" prompt that may follow
+     * a section scan. Clicking POSITIVE would insert a phantom row into
+     * inv.storeSections under the current PC.
+     */
+    private void cancelSectionCreationPrompt() {
+        try {
+            Thread.sleep(500);
+            if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEGATIVE)) {
+                driver.findElement(DIALOG_BUTTON_NEGATIVE).click();
+                Thread.sleep(500);
+            }
+        } catch (Exception e) { /* No dialog */ }
+    }
+
+    private Connection getDbConnection() throws Exception {
+        String url = String.format(
+                "jdbc:sqlserver://%s:%s;databaseName=%s;encrypt=true;trustServerCertificate=true;",
+                AppConfig.DB_SERVER, AppConfig.DB_PORT, AppConfig.DB_INVENTORY);
+        return DriverManager.getConnection(url, AppConfig.DB_USERNAME, AppConfig.DB_PASSWORD);
+    }
+
+    private List<String> queryStoreSections(String store, int pc) {
+        List<String> sections = new ArrayList<>();
+        String query =
+                "SELECT DISTINCT shelf FROM InventoryScanning.inv.storeSections " +
+                        "WHERE store = ? AND pc = ? AND shelf IS NOT NULL AND shelf != '' " +
+                        "ORDER BY shelf";
+        try (Connection conn = getDbConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setInt(1, Integer.parseInt(store));
+            stmt.setInt(2, pc);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                String shelf = rs.getString("shelf");
+                if (shelf != null && !shelf.trim().isEmpty()) {
+                    sections.add("STR-" + shelf.trim());
+                }
+            }
+            rs.close();
+        } catch (Exception e) {
+            logStep("Section query failed (pc=" + pc + "): " + e.getMessage());
+        }
+        return sections;
+    }
+
     private void scrollToBottom() {
         try {
             Dimension size = driver.manage().window().getSize();
@@ -166,12 +216,13 @@ public class EdgeCaseTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
+            // Open section (pc=2 filtered to avoid phantom row on mismatched scan)
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertFalse(sections.isEmpty(), "Need sections");
             dwHelper.scanSectionBarcode(sections.get(0));
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            cancelSectionCreationPrompt();
             logStep("Section opened: " + sections.get(0));
 
             // Get a UPC
@@ -229,7 +280,7 @@ public class EdgeCaseTest extends BaseTest {
             logStep("Scanning malformed barcode: STR-");
             dwHelper.scanSectionBarcode("STR-");
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            cancelSectionCreationPrompt();
 
             boolean appAlive = mainScan.isDisplayed()
                     || WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE);
@@ -264,7 +315,7 @@ public class EdgeCaseTest extends BaseTest {
             logStep("Scanning malformed barcode: STR-ABC");
             dwHelper.scanSectionBarcode("STR-ABC");
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            cancelSectionCreationPrompt();
 
             boolean appAlive = mainScan.isDisplayed()
                     || WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE);
@@ -298,13 +349,14 @@ public class EdgeCaseTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertFalse(sections.isEmpty(), "Need sections");
 
             // Open first section normally
             dwHelper.scanSectionBarcode(sections.get(0));
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            cancelSectionCreationPrompt();
             logStep("Opened section: " + sections.get(0));
 
             int initialCount = mainScan.getItemCount();
@@ -483,12 +535,14 @@ public class EdgeCaseTest extends BaseTest {
             PartsMainPage partsMain = new PartsMainPage(driver, wait);
             Assert.assertTrue(partsMain.isDisplayed(), "Should be on parts scan screen");
 
-            // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
+            // Open section — filter by oilPcCode so a non-oil section doesn't trigger
+            // the app's "create?" prompt and insert a phantom storeSections row.
+            List<String> sections = queryStoreSections(inv.store, Integer.parseInt(oilPcCode));
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             for (String section : sections) {
                 dwHelper.simulateScan(section, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
                 Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-                dismissAnyDialog();
+                cancelSectionCreationPrompt();
                 String output = partsMain.getSectionOutput();
                 if (output != null && !output.toLowerCase().contains("scan section")) {
                     logStep("Opened section: " + section);
@@ -609,7 +663,8 @@ public class EdgeCaseTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertTrue(sections.size() >= 3, "Need at least 3 section barcodes");
 
             int cycleCount = 0;
@@ -619,7 +674,7 @@ public class EdgeCaseTest extends BaseTest {
                 // Open section
                 dwHelper.scanSectionBarcode(section);
                 Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-                dismissAnyDialog();
+                cancelSectionCreationPrompt();
                 logStep("Cycle " + (i + 1) + ": Opened " + section);
 
                 // Close immediately with 0
@@ -730,7 +785,8 @@ public class EdgeCaseTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertTrue(sections.size() >= 2, "Need at least 2 sections to have a missed section");
 
             List<String> upcs = dbHelper.getTestUpcs(inv.store, inv.invCode, 3);
@@ -740,7 +796,7 @@ public class EdgeCaseTest extends BaseTest {
             logStep("Step 1: Scanning first section only: " + sections.get(0));
             dwHelper.scanSectionBarcode(sections.get(0));
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            cancelSectionCreationPrompt();
 
             dwHelper.scanItemBarcode(upcs.get(0));
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
@@ -859,9 +915,6 @@ public class EdgeCaseTest extends BaseTest {
                 skip("Need at least 2 PCs to test section reuse. Found: " + categoryCount);
             }
 
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertTrue(sections.size() >= 2, "Need at least 2 section barcodes");
-
             // Start first category and use first section
             int slot1 = -1;
             for (int i = 1; i <= 7; i++) {
@@ -873,7 +926,15 @@ public class EdgeCaseTest extends BaseTest {
             Assert.assertTrue(slot1 > 0, "Need a startable category");
 
             String label1 = partsCategory.getCategoryLabel(slot1);
-            logStep("Starting PC1: slot " + slot1 + " = " + label1);
+            String pc1Code = AppConfig.getPcCodeFromLabel(label1);
+            logStep("Starting PC1: slot " + slot1 + " = " + label1 + " pc=" + pc1Code);
+
+            // Filter sections by PC1 so a mismatched scan can't create a phantom row
+            int pc1Int = -1;
+            try { pc1Int = Integer.parseInt(pc1Code); } catch (Exception ignored) { /* unresolved */ }
+            List<String> sections = (pc1Int > 0) ? queryStoreSections(inv.store, pc1Int) : new ArrayList<>();
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
+            Assert.assertTrue(sections.size() >= 2, "Need at least 2 section barcodes");
 
             partsCategory.tapStart(slot1);
             Thread.sleep(AppConfig.MEDIUM_WAIT);
@@ -884,7 +945,7 @@ public class EdgeCaseTest extends BaseTest {
             String sectionUsedByPC1 = sections.get(0);
             dwHelper.simulateScan(sectionUsedByPC1, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            cancelSectionCreationPrompt();
 
             String output = partsMain.getSectionOutput();
             logStep("PC1 section output: " + output);

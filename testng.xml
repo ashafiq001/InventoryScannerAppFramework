@@ -125,7 +125,7 @@
 
 
     <test name="Item Management - Parts">
-        <parameter name="INVENTORY_PCS" value="65,86,188"/>
+        <parameter name="INVENTORY_PCS" value="65,92"/>
         <classes>
             <class name="com.mavis.scanner.functional.ItemManagementTest">
                 <methods>

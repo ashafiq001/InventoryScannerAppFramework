@@ -11,8 +11,8 @@ public class Manual extends BaseTest {
         ScanHelper scan = new ScanHelper(driver,wait);
 
 
-        scan.scan("STR-1000");
-        scan.scan("848983021311");
+        scan.scan("STR-5018");
+
         //scan.scan("008536668664");
        //scan.scan("092971283155",2);
 

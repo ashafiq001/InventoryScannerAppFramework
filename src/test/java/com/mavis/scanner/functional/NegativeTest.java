@@ -3,6 +3,7 @@ package com.mavis.scanner.functional;
 import com.mavis.scanner.base.BaseTest;
 import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.pages.*;
+import com.mavis.scanner.pages.dialogs.AddItemDialog;
 import com.mavis.scanner.pages.dialogs.ManualCountDialog;
 import com.mavis.scanner.utils.DatabaseHelper;
 import com.mavis.scanner.utils.DataWedgeHelper;
@@ -16,7 +17,9 @@ import org.openqa.selenium.interactions.Sequence;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.sql.*;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -33,6 +36,9 @@ public class NegativeTest extends BaseTest {
     private static final By DIALOG_BUTTON_POSITIVE = By.id("android:id/button1");
     private static final By DIALOG_BUTTON_NEGATIVE = By.id("android:id/button2");
     private static final By DIALOG_BUTTON_NEUTRAL = By.id("android:id/button3");
+
+    /** PC resolved when fullLoginToPartsScan taps slot 1 — used to filter section queries. */
+    private String activePartsPc;
 
     // ==================== HELPERS ====================
 
@@ -121,6 +127,11 @@ public class NegativeTest extends BaseTest {
         Assert.assertTrue(categoryCount > 0, "At least one parts category must be scheduled");
         logStep("Parts categories available: " + categoryCount);
 
+        // Capture the active PC so later section scans can be PC-filtered
+        String slot1Label = partsCategory.getCategoryLabel(1);
+        activePartsPc = AppConfig.getPcCodeFromLabel(slot1Label);
+        logStep("Active parts PC (slot 1): " + slot1Label + " -> pc=" + activePartsPc);
+
         partsCategory.tapStart(1);
         Thread.sleep(AppConfig.MEDIUM_WAIT);
 
@@ -137,6 +148,86 @@ public class NegativeTest extends BaseTest {
                 Thread.sleep(500);
             }
         } catch (Exception e) { /* No dialog */ }
+    }
+
+    /**
+     * Decline the app's "section not registered — create?" prompt that may follow
+     * a section scan. Clicking POSITIVE would insert a phantom row into
+     * inv.storeSections under the current PC.
+     */
+    private void cancelSectionCreationPrompt() {
+        try {
+            Thread.sleep(500);
+            if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEGATIVE)) {
+                driver.findElement(DIALOG_BUTTON_NEGATIVE).click();
+                Thread.sleep(500);
+            }
+        } catch (Exception e) { /* No dialog */ }
+    }
+
+    private Connection getDbConnection() throws Exception {
+        String url = String.format(
+                "jdbc:sqlserver://%s:%s;databaseName=%s;encrypt=true;trustServerCertificate=true;",
+                AppConfig.DB_SERVER, AppConfig.DB_PORT, AppConfig.DB_INVENTORY);
+        return DriverManager.getConnection(url, AppConfig.DB_USERNAME, AppConfig.DB_PASSWORD);
+    }
+
+    private List<String> queryStoreSections(String store, int pc) {
+        List<String> sections = new ArrayList<>();
+        String query =
+                "SELECT DISTINCT shelf FROM InventoryScanning.inv.storeSections " +
+                        "WHERE store = ? AND pc = ? AND shelf IS NOT NULL AND shelf != '' " +
+                        "ORDER BY shelf";
+        try (Connection conn = getDbConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setInt(1, Integer.parseInt(store));
+            stmt.setInt(2, pc);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                String shelf = rs.getString("shelf");
+                if (shelf != null && !shelf.trim().isEmpty()) {
+                    sections.add("STR-" + shelf.trim());
+                }
+            }
+            rs.close();
+        } catch (Exception e) {
+            logStep("Section query failed (pc=" + pc + "): " + e.getMessage());
+        }
+        return sections;
+    }
+
+    /**
+     * Scan the first section registered for pc=2 (tires). Declines any
+     * create-section prompt so no phantom rows are inserted.
+     */
+    private String openFirstTireSection(DataWedgeHelper dwHelper, String store, DatabaseHelper dbHelper)
+            throws InterruptedException {
+        List<String> sections = queryStoreSections(store, 2);
+        if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
+        Assert.assertFalse(sections.isEmpty(), "Need section barcodes");
+        String barcode = sections.get(0);
+        dwHelper.scanSectionBarcode(barcode);
+        Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+        cancelSectionCreationPrompt();
+        return barcode;
+    }
+
+    /**
+     * Scan the first section registered for the active parts PC (captured in
+     * fullLoginToPartsScan). Declines any create-section prompt.
+     */
+    private String openFirstPartsSection(DataWedgeHelper dwHelper, String store, DatabaseHelper dbHelper)
+            throws InterruptedException {
+        int pcInt = -1;
+        try { pcInt = Integer.parseInt(activePartsPc); } catch (Exception ignored) { /* unresolved */ }
+        List<String> sections = (pcInt > 0) ? queryStoreSections(store, pcInt) : new ArrayList<>();
+        if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
+        Assert.assertFalse(sections.isEmpty(), "Need section barcodes");
+        String barcode = sections.get(0);
+        dwHelper.simulateScan(barcode, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
+        Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
+        cancelSectionCreationPrompt();
+        return barcode;
     }
 
     private void scrollToBottom() {
@@ -391,12 +482,8 @@ public class NegativeTest extends BaseTest {
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
             // Open a section first (required for add item)
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertFalse(sections.isEmpty(), "Need section barcodes");
-            dwHelper.scanSectionBarcode(sections.get(0));
-            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
-            logStep("Opened section: " + sections.get(0));
+            String openedSection = openFirstTireSection(dwHelper, inv.store, dbHelper);
+            logStep("Opened section: " + openedSection);
 
             int initialCount = mainScan.getItemCount();
 
@@ -469,11 +556,7 @@ public class NegativeTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertFalse(sections.isEmpty(), "Need sections");
-            dwHelper.scanSectionBarcode(sections.get(0));
-            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            openFirstTireSection(dwHelper, inv.store, dbHelper);
 
             int initialCount = mainScan.getItemCount();
             String validItem = dbHelper.getValidItemNumber();
@@ -536,11 +619,7 @@ public class NegativeTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertFalse(sections.isEmpty(), "Need sections");
-            dwHelper.scanSectionBarcode(sections.get(0));
-            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            openFirstTireSection(dwHelper, inv.store, dbHelper);
 
             // Scan 2 items
             List<String> upcs = dbHelper.getTestUpcs(inv.store, inv.invCode, 2);
@@ -604,11 +683,7 @@ public class NegativeTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertFalse(sections.isEmpty(), "Need sections");
-            dwHelper.scanSectionBarcode(sections.get(0));
-            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            openFirstTireSection(dwHelper, inv.store, dbHelper);
 
             int itemCount = mainScan.getItemCount();
             logStep("Items in section before close: " + itemCount);
@@ -744,12 +819,8 @@ public class NegativeTest extends BaseTest {
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
             // Open a section first
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertFalse(sections.isEmpty(), "Need section barcodes");
-            dwHelper.simulateScan(sections.get(0), "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
-            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
-            logStep("Opened section: " + sections.get(0));
+            String openedSection = openFirstPartsSection(dwHelper, inv.store, dbHelper);
+            logStep("Opened section: " + openedSection);
 
             int initialCount = partsMain.getItemCount();
 
@@ -819,11 +890,7 @@ public class NegativeTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertFalse(sections.isEmpty(), "Need sections");
-            dwHelper.simulateScan(sections.get(0), "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
-            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            openFirstPartsSection(dwHelper, inv.store, dbHelper);
 
             int initialCount = partsMain.getItemCount();
             String validItem = dbHelper.getValidItemNumber();
@@ -886,11 +953,7 @@ public class NegativeTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertFalse(sections.isEmpty(), "Need sections");
-            dwHelper.simulateScan(sections.get(0), "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
-            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            openFirstPartsSection(dwHelper, inv.store, dbHelper);
 
             // Scan 2 items using parts-specific UPCs
             int partsPc = inv.scheduledPCs.stream().filter(pc -> pc != 2).findFirst().orElse(62);
@@ -952,11 +1015,7 @@ public class NegativeTest extends BaseTest {
             DataWedgeHelper dwHelper = new DataWedgeHelper(driver);
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
-            List<String> sections = dbHelper.getSectionBarcodes();
-            Assert.assertFalse(sections.isEmpty(), "Need sections");
-            dwHelper.simulateScan(sections.get(0), "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
-            Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            openFirstPartsSection(dwHelper, inv.store, dbHelper);
 
             int itemCount = partsMain.getItemCount();
             logStep("Items in section before close: " + itemCount);

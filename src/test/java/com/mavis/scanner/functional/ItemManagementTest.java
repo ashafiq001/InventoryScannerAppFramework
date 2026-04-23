@@ -5,6 +5,7 @@ import com.mavis.scanner.config.AppConfig;
 import com.mavis.scanner.pages.*;
 import com.mavis.scanner.pages.dialogs.BoxedOilDialog;
 import com.mavis.scanner.pages.dialogs.MultiItemDialog;
+import com.mavis.scanner.pages.dialogs.QuantityEntryDialog;
 import com.mavis.scanner.utils.DatabaseHelper;
 import com.mavis.scanner.utils.DataWedgeHelper;
 import com.mavis.scanner.utils.InventorySetupHelper;
@@ -18,6 +19,7 @@ import org.openqa.selenium.interactions.Sequence;
 import org.testng.Assert;
 import org.testng.annotations.Test;
 
+import java.sql.*;
 import java.time.Duration;
 import java.util.*;
 
@@ -167,18 +169,64 @@ public class ItemManagementTest extends BaseTest {
             throws InterruptedException {
         dwHelper.scanSectionBarcode(sectionBarcode);
         Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-        dismissAnyDialog();
+        cancelSectionCreationPrompt();
+        logUnexpectedDialog("after openTireSection(" + sectionBarcode + ")");
         logStep("Scanned section " + sectionBarcode + ", output: " + mainScan.getSectionOutput());
     }
 
+    /**
+     * If an AlertDialog is still on screen after the section-scan flow, log its
+     * title/message/button text so failing runs show what blocked the next scan.
+     */
+    private void logUnexpectedDialog(String context) {
+        try {
+            boolean hasPos = WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE);
+            boolean hasNeg = WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEGATIVE);
+            boolean hasNeu = WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL);
+            if (!(hasPos || hasNeg || hasNeu)) return;
+
+            String title = readDialogTextSafe(By.id("android:id/alertTitle"));
+            String message = readDialogTextSafe(By.id("android:id/message"));
+            String pos = hasPos ? readDialogTextSafe(DIALOG_BUTTON_POSITIVE) : "";
+            String neg = hasNeg ? readDialogTextSafe(DIALOG_BUTTON_NEGATIVE) : "";
+            String neu = hasNeu ? readDialogTextSafe(DIALOG_BUTTON_NEUTRAL) : "";
+            logStep("UNEXPECTED DIALOG " + context + ": title='" + title
+                    + "' message='" + message + "' positive='" + pos
+                    + "' negative='" + neg + "' neutral='" + neu + "'");
+        } catch (Exception ignored) { /* diagnostic only */ }
+    }
+
+    private String readDialogTextSafe(By locator) {
+        try {
+            if (!WaitHelper.isElementPresent(driver, locator)) return "";
+            String t = driver.findElement(locator).getText();
+            return t == null ? "" : t;
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
     private boolean openPartsSection(DataWedgeHelper dwHelper, PartsMainPage partsMain,
-                                     List<String> allSections, Set<String> usedSections) throws InterruptedException {
-        for (String sectionBarcode : allSections) {
+                                     String store, String pcCode, Set<String> usedSections)
+            throws InterruptedException {
+        // PC-filtered: scanning a section that doesn't belong to the active PC
+        // triggers the app's "create?" prompt, which would insert phantom rows
+        // into inv.storeSections.
+        int pcInt = -1;
+        try { pcInt = Integer.parseInt(pcCode); } catch (Exception ignored) { /* unresolved label */ }
+
+        List<String> pcSections = (pcInt > 0) ? queryStoreSections(store, pcInt) : new ArrayList<>();
+        if (pcSections.isEmpty()) {
+            logStep("No sections registered for pc=" + pcCode + " — cannot open section");
+            return false;
+        }
+
+        for (String sectionBarcode : pcSections) {
             if (usedSections.contains(sectionBarcode)) continue;
 
             dwHelper.simulateScan(sectionBarcode, "LABEL-TYPE-CODE128", AppConfig.DW_ACTION_PARTS);
             Thread.sleep(AppConfig.SCAN_PROCESS_WAIT);
-            dismissAnyDialog();
+            cancelSectionCreationPrompt();
 
             String sectionOutput = partsMain.getSectionOutput();
             logStep("Scanned section " + sectionBarcode + ", output: " + sectionOutput);
@@ -435,35 +483,11 @@ public class ItemManagementTest extends BaseTest {
             Thread.sleep(AppConfig.SHORT_WAIT);
         }
 
-        By qtyField = By.id("com.mavis.inventory_barcode_scanner:id/addItemQty");
-        By qtyField2 = By.id("com.mavis.inventory_barcode_scanner:id/editTextQty");
-        By anyEditText = By.className("android.widget.EditText");
-
-        By foundQtyField = null;
-        for (int attempt = 0; attempt < 3; attempt++) {
-            if (WaitHelper.isElementPresent(driver, qtyField)) { foundQtyField = qtyField; break; }
-            else if (WaitHelper.isElementPresent(driver, qtyField2)) { foundQtyField = qtyField2; break; }
-            else if (WaitHelper.isElementPresent(driver, anyEditText)) { foundQtyField = anyEditText; break; }
-            Thread.sleep(800);
-        }
-
-        if (foundQtyField != null) {
-            WebElement qtyElement = driver.findElement(foundQtyField);
-            String existingQty = qtyElement.getText();
-            if (existingQty == null || existingQty.trim().isEmpty())
-                existingQty = qtyElement.getAttribute("text");
-            if (existingQty == null || existingQty.trim().isEmpty() || existingQty.trim().equals("0")) {
-                qtyElement.clear();
-                qtyElement.sendKeys("1");
-            }
-            Thread.sleep(500);
-
-            By submitBtn = byTextIgnoreCase("SUBMIT");
-            By okBtn = byTextIgnoreCase("OK");
-            if (WaitHelper.isElementPresent(driver, submitBtn)) driver.findElement(submitBtn).click();
-            else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL)) driver.findElement(DIALOG_BUTTON_NEUTRAL).click();
-            else if (WaitHelper.isElementPresent(driver, okBtn)) driver.findElement(okBtn).click();
-            else if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) driver.findElement(DIALOG_BUTTON_POSITIVE).click();
+        // Quantity dialog (Wipers PC 92 / Oil Filters PC 86 / Batteries PC 65 / TPMS PC 95)
+        QuantityEntryDialog qtyDialog = new QuantityEntryDialog(driver, wait);
+        if (qtyDialog.isDisplayed()) {
+            logStep("  Quantity dialog - entering qty 1 and submitting");
+            qtyDialog.submitWithQuantity("1");
             Thread.sleep(AppConfig.SHORT_WAIT);
             return;
         }
@@ -483,10 +507,66 @@ public class ItemManagementTest extends BaseTest {
         try {
             Thread.sleep(500);
             if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_POSITIVE)) {
+                String title = readDialogTextSafe(By.id("android:id/alertTitle"));
+                String message = readDialogTextSafe(By.id("android:id/message"));
+                String pos = readDialogTextSafe(DIALOG_BUTTON_POSITIVE);
+                String neg = WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEGATIVE)
+                        ? readDialogTextSafe(DIALOG_BUTTON_NEGATIVE) : "";
+                String neu = WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEUTRAL)
+                        ? readDialogTextSafe(DIALOG_BUTTON_NEUTRAL) : "";
+                logStep("dismissAnyDialog clicking POSITIVE='" + pos
+                        + "' title='" + title + "' message='" + message
+                        + "' negative='" + neg + "' neutral='" + neu + "'");
                 driver.findElement(DIALOG_BUTTON_POSITIVE).click();
                 Thread.sleep(500);
             }
         } catch (Exception e) { /* No dialog */ }
+    }
+
+    /**
+     * Decline the app's "section not registered — create?" prompt that may follow
+     * a section scan. Clicking POSITIVE would insert a phantom row into
+     * inv.storeSections under the current PC.
+     */
+    private void cancelSectionCreationPrompt() {
+        try {
+            Thread.sleep(500);
+            if (WaitHelper.isElementPresent(driver, DIALOG_BUTTON_NEGATIVE)) {
+                driver.findElement(DIALOG_BUTTON_NEGATIVE).click();
+                Thread.sleep(500);
+            }
+        } catch (Exception e) { /* No dialog */ }
+    }
+
+    private Connection getDbConnection() throws Exception {
+        String url = String.format(
+                "jdbc:sqlserver://%s:%s;databaseName=%s;encrypt=true;trustServerCertificate=true;",
+                AppConfig.DB_SERVER, AppConfig.DB_PORT, AppConfig.DB_INVENTORY);
+        return DriverManager.getConnection(url, AppConfig.DB_USERNAME, AppConfig.DB_PASSWORD);
+    }
+
+    private List<String> queryStoreSections(String store, int pc) {
+        List<String> sections = new ArrayList<>();
+        String query =
+                "SELECT DISTINCT shelf FROM InventoryScanning.inv.storeSections " +
+                        "WHERE store = ? AND pc = ? AND shelf IS NOT NULL AND shelf != '' " +
+                        "ORDER BY shelf";
+        try (Connection conn = getDbConnection();
+             PreparedStatement stmt = conn.prepareStatement(query)) {
+            stmt.setInt(1, Integer.parseInt(store));
+            stmt.setInt(2, pc);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                String shelf = rs.getString("shelf");
+                if (shelf != null && !shelf.trim().isEmpty()) {
+                    sections.add("STR-" + shelf.trim());
+                }
+            }
+            rs.close();
+        } catch (Exception e) {
+            logStep("Section query failed (pc=" + pc + "): " + e.getMessage());
+        }
+        return sections;
     }
 
     private void scrollToBottom() {
@@ -534,7 +614,8 @@ public class ItemManagementTest extends BaseTest {
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
             // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertFalse(sections.isEmpty(), "Should have at least one section barcode");
             openTireSection(dwHelper, mainScan, sections.get(0));
 
@@ -582,7 +663,8 @@ public class ItemManagementTest extends BaseTest {
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
             // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertFalse(sections.isEmpty(), "Need section barcodes");
             openTireSection(dwHelper, mainScan, sections.get(0));
 
@@ -629,7 +711,8 @@ public class ItemManagementTest extends BaseTest {
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
             // Open section and scan an item
-            List<String> sections = dbHelper.getSectionBarcodes();
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertFalse(sections.isEmpty(), "Need section barcodes");
             openTireSection(dwHelper, mainScan, sections.get(0));
 
@@ -676,7 +759,8 @@ public class ItemManagementTest extends BaseTest {
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
             // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertFalse(sections.isEmpty(), "Need section barcodes");
             openTireSection(dwHelper, mainScan, sections.get(0));
 
@@ -745,7 +829,8 @@ public class ItemManagementTest extends BaseTest {
             DatabaseHelper dbHelper = new DatabaseHelper(driver);
 
             // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
+            List<String> sections = queryStoreSections(inv.store, 2);
+            if (sections.isEmpty()) sections = dbHelper.getSectionBarcodes();
             Assert.assertFalse(sections.isEmpty(), "Need section barcodes");
             openTireSection(dwHelper, mainScan, sections.get(0));
 
@@ -820,9 +905,8 @@ public class ItemManagementTest extends BaseTest {
             PartsMainPage partsMain = startCategory(partsCategory, slot);
 
             // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
             Set<String> usedSections = new HashSet<>();
-            boolean opened = openPartsSection(dwHelper, partsMain, sections, usedSections);
+            boolean opened = openPartsSection(dwHelper, partsMain, inv.store, pcCode, usedSections);
             Assert.assertTrue(opened, "Should open a section");
 
             // Scan an item
@@ -877,9 +961,8 @@ public class ItemManagementTest extends BaseTest {
             PartsMainPage partsMain = startCategory(partsCategory, slot);
 
             // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
             Set<String> usedSections = new HashSet<>();
-            boolean opened = openPartsSection(dwHelper, partsMain, sections, usedSections);
+            boolean opened = openPartsSection(dwHelper, partsMain, inv.store, pcCode, usedSections);
             Assert.assertTrue(opened, "Should open a section");
 
             int initialCount = partsMain.getItemCount();
@@ -933,9 +1016,8 @@ public class ItemManagementTest extends BaseTest {
             PartsMainPage partsMain = startCategory(partsCategory, slot);
 
             // Open section
-            List<String> sections = dbHelper.getSectionBarcodes();
             Set<String> usedSections = new HashSet<>();
-            boolean opened = openPartsSection(dwHelper, partsMain, sections, usedSections);
+            boolean opened = openPartsSection(dwHelper, partsMain, inv.store, pcCode, usedSections);
             Assert.assertTrue(opened, "Should open a section");
 
             int initialCount = partsMain.getItemCount();
@@ -1009,9 +1091,8 @@ public class ItemManagementTest extends BaseTest {
             PartsMainPage partsMain = startCategory(partsCategory, slot);
 
             // Open section and scan an item
-            List<String> sections = dbHelper.getSectionBarcodes();
             Set<String> usedSections = new HashSet<>();
-            boolean opened = openPartsSection(dwHelper, partsMain, sections, usedSections);
+            boolean opened = openPartsSection(dwHelper, partsMain, inv.store, pcCode, usedSections);
             Assert.assertTrue(opened, "Should open a section");
 
             List<String> upcs = dbHelper.getTestUpcsByPc(pcCode, 1);

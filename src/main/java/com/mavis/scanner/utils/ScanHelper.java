@@ -28,6 +28,12 @@ import java.util.Collections;
  *   scan.scan("STR-1003");          // opens next section (auto-closes previous if still open)
  *   scan.scan("841623129200");
  *   scan.closeSection();
+ *
+ * Battery Returns:
+ *   scan.scanBatteryReturn("092971236021");     // scans battery for returns
+ *   scan.scanBatteryReturn("092971277918", 3);  // scans battery 3 times
+ *   scan.getBatteryReturnScanCount();            // count since last resetBatteryReturnCount()
+ *   scan.resetBatteryReturnCount();
  */
 public class ScanHelper {
 
@@ -62,10 +68,6 @@ public class ScanHelper {
         } else {
             scanItem(barcode);
         }
-    }
-
-    public void scanBattery(String barcode) throws InterruptedException {
-        scanItem(barcode);
     }
 
     /**
@@ -131,6 +133,7 @@ public class ScanHelper {
         return sectionScanCount;
     }
 
+    // ==================== BATTERY RETURNS ====================
 
     /**
      * Scan a battery barcode for the returns flow.
@@ -159,7 +162,6 @@ public class ScanHelper {
     public void resetBatteryReturnCount() {
         batteryReturnScanCount = 0;
     }
-
 
     // ==================== INTERNAL ====================
 
@@ -208,10 +210,29 @@ public class ScanHelper {
                 if (btnText != null && btnText.toLowerCase().contains("go back")) {
                     return;
                 }
+                String title = readTextSafe(By.id("android:id/alertTitle"));
+                String message = readTextSafe(By.id("android:id/message"));
+                String neg = WaitHelper.isElementPresent(driver, By.id("android:id/button2"))
+                        ? readTextSafe(By.id("android:id/button2")) : null;
+                String neu = WaitHelper.isElementPresent(driver, By.id("android:id/button3"))
+                        ? readTextSafe(By.id("android:id/button3")) : null;
+                System.out.println("[ScanHelper.dismissAnyDialog] clicking POSITIVE='"
+                        + btnText + "' title='" + title + "' message='" + message
+                        + "' negative='" + neg + "' neutral='" + neu + "'");
                 driver.findElement(DIALOG_BUTTON_POSITIVE).click();
                 Thread.sleep(500);
             }
         } catch (Exception e) { /* No dialog */ }
+    }
+
+    private String readTextSafe(By locator) {
+        try {
+            if (!WaitHelper.isElementPresent(driver, locator)) return "";
+            String t = driver.findElement(locator).getText();
+            return t == null ? "" : t;
+        } catch (Exception e) {
+            return "";
+        }
     }
 
     private void scrollToBottom() {

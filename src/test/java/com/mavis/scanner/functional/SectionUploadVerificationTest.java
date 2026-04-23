@@ -489,9 +489,9 @@ public class SectionUploadVerificationTest extends BaseTest {
 
         try {
             // Step 0: Resolve inventory
+            // Intentionally do NOT assign activeInvNum/activeInvCode — this suppresses
+            // BaseTest.teardown()'s inventory delete so the completed inventory is preserved for DB verification.
             ScheduledInventory inv = InventorySetupHelper.resolveInventory();
-            activeInvNum = inv.invNum;
-            activeInvCode=inv.invCode;
             logStep("Step 0: Resolved inventory: " + inv);
 
             if (!inv.scheduledPCs.isEmpty() && !inv.scheduledPCs.contains(2)) {
@@ -753,9 +753,9 @@ public class SectionUploadVerificationTest extends BaseTest {
 
         try {
             // Step 0: Resolve inventory
+            // Intentionally do NOT assign activeInvNum/activeInvCode — this suppresses
+            // BaseTest.teardown()'s inventory delete so the completed inventory is preserved for DB verification.
             ScheduledInventory inv = InventorySetupHelper.resolveInventory();
-            activeInvNum = inv.invNum;
-            activeInvCode=inv.invCode;
             logStep("Step 0: Resolved inventory: " + inv);
 
             if (!inv.scheduledPCs.isEmpty()) {
